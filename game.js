@@ -149,7 +149,7 @@
   let level = 0, coins = 0, lives = 3, score = 0;
   const LEVEL_TIME = 300;
   let timeLeft = LEVEL_TIME, timeAcc = 0;
-  let solids = [], coinList = [], enemies = [], popCoins = [], powerups = [], fireballs = [];
+  let solids = [], coinList = [], enemies = [], popCoins = [], powerups = [], fireballs = [], particles = [];
   let flag = null, worldW = 0, worldH = 0, player = null, camX = 0;
   let playerState = "small"; // small | big | fire (يستمر بين المراحل)
 
@@ -190,10 +190,38 @@
       osc.connect(g); g.connect(a.destination);
       osc.start(t0); osc.stop(t0 + dur + 0.02);
     }
+    // نغمة عند وقت مطلق (للموسيقى)
+    function blip(freq, tAbs, dur, type, vol) {
+      const a = ac; if (!a || muted) return;
+      const osc = a.createOscillator(), g = a.createGain();
+      osc.type = type; osc.frequency.setValueAtTime(freq, tAbs);
+      g.gain.setValueAtTime(0.0001, tAbs);
+      g.gain.exponentialRampToValueAtTime(vol, tAbs + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, tAbs + dur);
+      osc.connect(g); g.connect(a.destination);
+      osc.start(tAbs); osc.stop(tAbs + dur + 0.02);
+    }
+    // مُسلسِل موسيقى بسيط (لحن أصلي متكرّر)
+    const LEAD = [392, 523, 659, 523, 587, 493, 587, 392, 440, 523, 659, 523, 587, 784, 659, 523];
+    const BASS = [130.81, 130.81, 98, 98, 110, 110, 87.31, 98];
+    let musicOn = false, mTimer = null, mStep = 0, mNext = 0;
+    const STEP_DUR = 60 / 132 / 2; // إيقاع ثامنات عند 132bpm
+    function mScheduler() {
+      const a = ctx2(); if (!a) return;
+      while (mNext < a.currentTime + 0.12) {
+        const lf = LEAD[mStep % LEAD.length];
+        if (lf) blip(lf, mNext, STEP_DUR * 0.9, "square", 0.05);
+        if (mStep % 2 === 0) { const bf = BASS[(mStep / 2) % BASS.length]; if (bf) blip(bf, mNext, STEP_DUR * 1.8, "triangle", 0.06); }
+        mNext += STEP_DUR; mStep++;
+      }
+    }
+
     return {
       isMuted: () => muted,
       toggle() { muted = !muted; localStorage.setItem("superRunMuted", muted ? "1" : "0"); if (!muted) tone(660, 0.08, "square", 0.15, 0); return muted; },
       resume() { ctx2(); },
+      startMusic() { const a = ctx2(); if (!a || musicOn) return; musicOn = true; mStep = 0; mNext = a.currentTime + 0.1; mTimer = setInterval(mScheduler, 25); },
+      stopMusic() { musicOn = false; if (mTimer) { clearInterval(mTimer); mTimer = null; } },
       jump() { tone(420, 0.14, "square", 0.14, 0); tone(700, 0.12, "square", 0.12, 0.05); },
       coin() { tone(988, 0.07, "square", 0.14, 0); tone(1319, 0.12, "square", 0.13, 0.06); },
       stomp() { tone(200, 0.12, "sawtooth", 0.18, 0); tone(120, 0.14, "sawtooth", 0.14, 0.05); },
@@ -213,7 +241,7 @@
   }
   function buildLevel(idx) {
     const cfg = CONFIGS[idx];
-    solids = []; coinList = []; enemies = []; popCoins = []; powerups = []; fireballs = [];
+    solids = []; coinList = []; enemies = []; popCoins = []; powerups = []; fireballs = []; particles = [];
     worldW = cfg.width * TILE; worldH = 12 * TILE;
     timeLeft = LEVEL_TIME; timeAcc = 0;
     if (idx > progress) { progress = idx; localStorage.setItem("superRunProgress", String(progress)); }
@@ -320,7 +348,7 @@
 
     for (const coin of coinList) {
       if (!coin.got && rectHit(p, { x: coin.x - 9, y: coin.y - 9, w: 18, h: 18 })) {
-        coin.got = true; coins++; score += 100; updateHUD(); Sound.coin();
+        coin.got = true; coins++; score += 100; updateHUD(); Sound.coin(); burst(coin.x, coin.y, PC_GOLD, 8);
       }
     }
     if (flag && p.x + p.w > flag.x - 6) winLevel();
@@ -341,11 +369,36 @@
   // كوين يطلع من الصندوق
   function spawnPopCoin(x, y) {
     popCoins.push({ x: x, y: y - 6, vy: -6.2, life: 34 });
-    coins++; score += 100; updateHUD(); Sound.coin();
+    coins++; score += 100; updateHUD(); Sound.coin(); burst(x, y - 6, PC_GOLD, 8);
   }
   function updatePopCoins() {
     for (const pc of popCoins) { pc.vy += 0.42; pc.y += pc.vy; pc.life--; }
     popCoins = popCoins.filter((pc) => pc.life > 0);
+  }
+
+  // ============ الجسيمات (شرر/نجوم) ============
+  const PC_GOLD = ["#ffd21a", "#fff6b0", "#d99a00"];
+  const PC_STOMP = ["#ffffff", "#c8c8c8", "#9a5a2c"];
+  const PC_FIRE = ["#ff9b1a", "#ffd21a", "#e53211"];
+  const PC_POWER = ["#ff5a4d", "#2ecc40", "#ffd21a", "#3aa0ff"];
+  function burst(x, y, colors, count) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 1 + Math.random() * 2.6;
+      particles.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1.6, life: 26 + Math.random() * 12, max: 38, color: colors[(Math.random() * colors.length) | 0], size: 2 + Math.random() * 2.5 });
+    }
+  }
+  function updateParticles() {
+    for (const p of particles) { p.vy += 0.16; p.x += p.vx; p.y += p.vy; p.life--; }
+    particles = particles.filter((p) => p.life > 0);
+  }
+  function drawParticles() {
+    for (const p of particles) {
+      if (p.x < camX - 10 || p.x > camX + VW + 10) continue;
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
   }
 
   // ============ القوى الخاصة (فطر / زهرة نار) ============
@@ -379,6 +432,7 @@
     }
     player.invuln = Math.max(player.invuln, 40);
     Sound.grow();
+    burst(player.x + player.w / 2, player.y + player.h / 2, PC_POWER, 16);
   }
   function setSize(newState) {
     const feet = player.y + player.h;
@@ -412,7 +466,7 @@
       for (const s of solids) { if (rectHit(fb, s)) { if (fb.vy > 0) { fb.y = s.y - fb.h; fb.vy = -5.5; } else { fb.y = s.y + s.h; fb.vy = 0.5; } } }
       if (fb.x < 0 || fb.x > worldW || fb.life <= 0) fb.dead = true;
       for (const e of enemies) {
-        if (e.alive && rectHit(fb, e)) { e.alive = false; e.dieTime = 0; e.vy = -6; e.flip = true; score += 200; updateHUD(); Sound.stomp(); fb.dead = true; break; }
+        if (e.alive && rectHit(fb, e)) { e.alive = false; e.dieTime = 0; e.vy = -6; e.flip = true; score += 200; updateHUD(); Sound.stomp(); burst(e.x + e.w / 2, e.y + e.h / 2, PC_FIRE, 12); fb.dead = true; break; }
       }
     }
     fireballs = fireballs.filter((fb) => !fb.dead);
@@ -449,7 +503,7 @@
       const p = player;
       if (!p.dead && rectHit(p, e)) {
         const stomped = p.vy > 0 && (p.y + p.h) - e.y < 18;
-        if (stomped) { e.alive = false; e.dieTime = 0; p.vy = JUMP_VELOCITY * 0.6; score += 200; updateHUD(); Sound.stomp(); }
+        if (stomped) { e.alive = false; e.dieTime = 0; p.vy = JUMP_VELOCITY * 0.6; score += 200; updateHUD(); Sound.stomp(); burst(e.x + e.w / 2, e.y + e.h / 2, PC_STOMP, 9); }
         else takeDamage();
       }
     }
@@ -499,6 +553,7 @@
   }
   function endGame(won) {
     state = won ? "win" : "dead";
+    Sound.stopMusic();
     let isRecord = false;
     if (score > bestScore) { bestScore = score; localStorage.setItem("superRunBestScore", String(bestScore)); isRecord = true; }
     document.getElementById("hud").classList.add("hidden");
@@ -537,6 +592,7 @@
     drawEnemies();
     drawFireballs();
     drawPlayer();
+    drawParticles();
     ctx.restore();
   }
 
@@ -864,8 +920,8 @@
 
   // ============ الحلقة الرئيسية ============
   function loop() {
-    if (state === "playing") { updatePlayer(); updateEnemies(); updatePopCoins(); updatePowerups(); updateFireballs(); updateTimer(); }
-    else if (state === "dying") { updateDeath(); updatePopCoins(); }
+    if (state === "playing") { updatePlayer(); updateEnemies(); updatePopCoins(); updatePowerups(); updateFireballs(); updateTimer(); updateParticles(); }
+    else if (state === "dying") { updateDeath(); updatePopCoins(); updateParticles(); }
     else if (state === "win-anim" || state === "dead") { updatePopCoins(); }
     if (player && (state === "playing" || state === "dying" || state === "win-anim" || state === "dead" || state === "win")) draw();
     requestAnimationFrame(loop);
@@ -889,7 +945,7 @@
     // محاولة قفل الاتجاه أفقياً (تنجح على التطبيق المثبّت/وضع ملء الشاشة)
     try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(function () {}); } catch (e) {}
     level = startLevel; coins = 0; lives = 3; score = 0; playerState = "small";
-    buildLevel(level); updateHUD(); refreshFireBtn(); state = "playing";
+    buildLevel(level); updateHUD(); refreshFireBtn(); Sound.startMusic(); state = "playing";
     document.getElementById("start-screen").classList.add("hidden");
     document.getElementById("end-screen").classList.add("hidden");
     document.getElementById("hud").classList.remove("hidden");
