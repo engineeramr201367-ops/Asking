@@ -285,7 +285,7 @@
         else if (p.vy < 0) {
           p.y = s.y + s.h; p.vy = 0;
           if (s.type === "block") { s.type = "used"; s.bump = 8; spawnPopCoin(s.x + s.w / 2, s.y); }
-          else if (s.type === "brick") { s.bump = 6; collectCoinOn(s); }
+          else if (s.type === "brick") { s.bump = 6; if (collectCoinOn(s)) s.type = "used"; }
         }
       }
     }
@@ -301,14 +301,16 @@
     if (flag && p.x + p.w > flag.x - 6) winLevel();
   }
 
-  // نطح الطوبة يلتقط الكوين المستقرّ فوقها
+  // نطح الطوبة يلتقط الكوين المستقرّ فوقها — يرجّع true لو التقط كوين
   function collectCoinOn(s) {
+    let got = false;
     for (const coin of coinList) {
       if (coin.got) continue;
       if (Math.abs(coin.x - (s.x + s.w / 2)) < 16 && coin.y > s.y - 26 && coin.y < s.y) {
-        coin.got = true; spawnPopCoin(coin.x, s.y - 4);
+        coin.got = true; spawnPopCoin(coin.x, s.y - 4); got = true;
       }
     }
+    return got;
   }
 
   // كوين يطلع من الصندوق
@@ -362,11 +364,22 @@
   // ============ الموت والفوز ============
   function killPlayer() {
     if (player.dead) return;
-    player.dead = true; lives--; updateHUD(); Sound.die();
-    setTimeout(() => {
+    player.dead = true; player.onGround = false;
+    player.vy = -10; player.deathSpin = 0; player.deathTime = 0; // نطّة كوميدية
+    lives--; updateHUD(); Sound.die();
+    state = "dying";
+  }
+  // سقوط كوميدي: يطير لأعلى ثم يسقط وهو يلفّ (بدون تصادم)
+  function updateDeath() {
+    const p = player;
+    p.deathTime++;
+    p.vy += GRAVITY; if (p.vy > MAX_FALL + 5) p.vy = MAX_FALL + 5;
+    p.y += p.vy;
+    p.deathSpin += 0.32;
+    if (p.y > worldH + 160 || p.deathTime > 160) {
       if (lives > 0) { buildLevel(level); state = "playing"; }
       else endGame(false);
-    }, 700);
+    }
   }
   function winLevel() {
     if (state !== "playing") return;
@@ -620,11 +633,11 @@
 
     ctx.save();
     ctx.translate(p.x + p.w / 2, p.y);
+    if (p.dead) { ctx.translate(0, p.h / 2); ctx.rotate(p.deathSpin || 0); ctx.translate(0, -p.h / 2); }
     if (p.face < 0) ctx.scale(-1, 1);
     const walking = p.onGround && Math.abs(p.vx) > 0.1;
     const step = Math.floor(p.animTime / 5) % 2;
     const jumping = !p.onGround;
-    if (p.dead) ctx.globalAlpha = 0.5;
 
     // ===== الأحذية =====
     ctx.fillStyle = C.shoe;
@@ -692,8 +705,9 @@
   // ============ الحلقة الرئيسية ============
   function loop() {
     if (state === "playing") { updatePlayer(); updateEnemies(); updatePopCoins(); }
+    else if (state === "dying") { updateDeath(); updatePopCoins(); }
     else if (state === "win-anim" || state === "dead") { updatePopCoins(); }
-    if (player && (state === "playing" || state === "win-anim" || state === "dead" || state === "win")) draw();
+    if (player && (state === "playing" || state === "dying" || state === "win-anim" || state === "dead" || state === "win")) draw();
     requestAnimationFrame(loop);
   }
 

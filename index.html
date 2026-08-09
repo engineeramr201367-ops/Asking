@@ -78,6 +78,14 @@
     text-shadow: 2px 2px 0 rgba(0,0,0,.35);
   }
   #hud .box { background: rgba(0,0,0,.25); padding: 4px 12px; border-radius: 8px; }
+  /* أيقونة الكوين الدهبية في العداد */
+  .coin-ic {
+    display: inline-block; width: 15px; height: 15px; border-radius: 50%;
+    background: radial-gradient(circle at 34% 30%, #fff6b0 0%, #ffd21a 55%, #d99a00 100%);
+    border: 1px solid #b9820a; vertical-align: -2px;
+    box-shadow: inset 0 1px 2px rgba(255,255,255,.7), inset 0 -1px 2px rgba(150,100,0,.5);
+  }
+  .coin-ic::after { content: ""; display: block; width: 3px; height: 7px; margin: 4px auto; background: rgba(180,120,0,.55); border-radius: 2px; }
 
   /* شاشة "أدر جهازك أفقياً" — تظهر فقط في الوضع الرأسي على الموبايل */
   #rotate-notice {
@@ -107,7 +115,7 @@
 </div>
 
 <div id="hud" class="hidden">
-  <div class="box">🪙 <span id="hud-coins">0</span></div>
+  <div class="box"><span class="coin-ic"></span> <span id="hud-coins">0</span></div>
   <div class="box">المرحلة <span id="hud-level">1</span></div>
   <div class="box">❤️ <span id="hud-lives">3</span></div>
   <div class="box">🏆 <span id="hud-best">0</span></div>
