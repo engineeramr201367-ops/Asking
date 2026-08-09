@@ -156,6 +156,7 @@
   let solids = [], coinList = [], enemies = [], popCoins = [], powerups = [], fireballs = [], particles = [];
   let flag = null, worldW = 0, worldH = 0, player = null, camX = 0;
   let warpPipes = [], boss = null, currentWarp = null, inSecret = false, secretReturn = null;
+  let solidsDirty = false; // يُرفع عند كسر طوبة لتنظيف قائمة المجسّمات
   let playerState = "small"; // small | big | fire (يستمر بين المراحل)
 
   let bestScore = parseInt(localStorage.getItem("superRunBestScore") || "0", 10) || 0;
@@ -237,6 +238,7 @@
       hurt() { tone(300, 0.12, "sawtooth", 0.16, 0); tone(200, 0.14, "sawtooth", 0.14, 0.08); }, // الأذى
       fire() { tone(880, 0.06, "square", 0.12, 0); tone(560, 0.08, "square", 0.1, 0.04); }, // رمي النار
       pipe() { tone(300, 0.12, "sine", 0.16, 0); tone(180, 0.16, "sine", 0.14, 0.1); tone(110, 0.2, "sine", 0.12, 0.22); }, // دخول أنبوب
+      brick() { tone(240, 0.05, "square", 0.14, 0); tone(150, 0.07, "square", 0.12, 0.03); tone(90, 0.1, "sawtooth", 0.1, 0.07); }, // كسر طوبة
     };
   })();
 
@@ -360,10 +362,15 @@
           p.y = s.y + s.h; p.vy = 0;
           if (s.type === "block") { s.type = "used"; s.bump = 8; spawnPopCoin(s.x + s.w / 2, s.y); }
           else if (s.type === "power") { s.type = "used"; s.bump = 8; spawnPowerup(s.x + s.w / 2, s.y); }
-          else if (s.type === "brick") { s.bump = 6; if (collectCoinOn(s)) s.type = "used"; }
+          else if (s.type === "brick") {
+            s.bump = 6;
+            collectCoinOn(s);                 // ياخد الكوين اللي فوقها (لو موجود)
+            if (p.state !== "small") breakBrick(s); // الطوبة تتكسر فقط لو اللاعب كبير/نار
+          }
         }
       }
     }
+    if (solidsDirty) { solids = solids.filter((s) => !s.broken); solidsDirty = false; }
 
     if (Math.abs(p.vx) > 0.1) p.animTime += 1;
     if (p.y > worldH + 40) killPlayer();
@@ -413,6 +420,8 @@
   const PC_STOMP = ["#ffffff", "#c8c8c8", "#9a5a2c"];
   const PC_FIRE = ["#ff9b1a", "#ffd21a", "#e53211"];
   const PC_POWER = ["#ff5a4d", "#2ecc40", "#ffd21a", "#3aa0ff"];
+  const PC_BRICK = ["#c0492f", "#e07a5a", "#8f3520"];
+  function breakBrick(s) { s.broken = true; solidsDirty = true; burst(s.x + 15, s.y + 12, PC_BRICK, 12); Sound.brick(); }
   function burst(x, y, colors, count) {
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2, sp = 1 + Math.random() * 2.6;
