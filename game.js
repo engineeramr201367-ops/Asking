@@ -15,9 +15,9 @@
 
   // ============ إعدادات فيزياء اللعبة ============
   const GRAVITY = 0.6;
-  const MOVE_SPEED = 2.6;
-  const JUMP_VELOCITY = -10.6;
-  const MAX_FALL = 12;
+  const MOVE_SPEED = 2.9;
+  const JUMP_VELOCITY = -12.6; // قفزة أعلى: توصل ~4.3 خانات
+  const MAX_FALL = 13;
   const TILE = 30;
   const GROUND_ROW = 10; // صفوف الأرض: 10 و 11
   const START_ROW = 9;   // صف بداية اللاعب والأعداء (فوق الأرض)
@@ -207,20 +207,21 @@
       solids.push({ x: col * TILE, y: GROUND_ROW * TILE, w: TILE, h: TILE, type: "ground" });
       solids.push({ x: col * TILE, y: (GROUND_ROW + 1) * TILE, w: TILE, h: TILE, type: "ground" });
     }
-    // المنصّات
+    // المنصّات — نثبّت ارتفاعها في الصفوف 6 أو 7 فقط لتظل في متناول القفز من الأرض
     for (const p of cfg.platforms) {
+      const row = p.row < 6 ? 6 : (p.row > 7 ? 7 : p.row);
       for (let i = 0; i < p.len; i++) {
-        solids.push({ x: (p.col + i) * TILE, y: p.row * TILE, w: TILE, h: TILE, type: p.type });
+        solids.push({ x: (p.col + i) * TILE, y: row * TILE, w: TILE, h: TILE, type: p.type });
       }
+      // كوين فوق كل بلاطة منصّة مباشرة (تلتقطه وأنت تقفز عليها) — دايماً قابل للوصول
+      for (let i = 0; i < p.len; i++) addCoin(p.col + i, row - 1);
     }
-    // كوينات أقواس فوق كل فجوة (إرشاد اللاعب للقفز)
+    // كوينات أقواس فوق كل فجوة، على ارتفاع منخفض قابل للوصول (يرشدك للقفز)
     for (const g of cfg.gaps) {
       const s = g[0], w = g[1];
-      addCoin(s - 1, 6); addCoin(s + w, 6);
-      for (let i = 0; i < w; i++) addCoin(s + i, 5);
+      addCoin(s - 1, 8); addCoin(s + w, 8);
+      for (let i = 0; i < w; i++) addCoin(s + i, 7);
     }
-    // كوينات إضافية
-    for (const cn of cfg.coins) addCoin(cn[0], cn[1]);
     // الأعداء على الأرض
     for (const col of cfg.enemies) enemies.push(makeEnemy(col * TILE, START_ROW * TILE));
     // اللاعب
