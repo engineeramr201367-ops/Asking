@@ -665,6 +665,7 @@
       "🏅 نتيجتك: <b>" + score + "</b> — جمعت " + coins + " عملة" +
       "<br/>" + (isRecord ? "🎉 رقم قياسي جديد!" : "أعلى نتيجة: " + bestScore);
     es.classList.remove("hidden");
+    if (window.MobileAds) window.MobileAds.onGameOver(); // إعلان بيني داخل التطبيق فقط
     // إظهار زر المتابعة لو فيه تقدّم محفوظ
     const cb = document.getElementById("continue-btn");
     if (cb && progress > 0) { document.getElementById("cont-level").textContent = progress + 1; }

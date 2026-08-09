@@ -1,9 +1,10 @@
 /* Service Worker — network-first عشان أي تحديث يظهر فوراً، ومع كده يشتغل بدون إنترنت */
-const CACHE = "super-run-v15";
+const CACHE = "super-run-v16";
 const ASSETS = [
   "./",
   "./index.html",
   "./game.js",
+  "./mobile-ads.js",
   "./manifest.json",
   "./icon.svg"
 ];

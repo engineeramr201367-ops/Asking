@@ -1,0 +1,15 @@
+{
+  "appId": "com.superrun.game",
+  "appName": "Super Run",
+  "webDir": "www",
+  "backgroundColor": "#5c94fc",
+  "android": {
+    "backgroundColor": "#5c94fc"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 800,
+      "backgroundColor": "#5c94fc"
+    }
+  }
+}
