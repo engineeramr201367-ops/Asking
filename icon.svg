@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#5c94fc"/>
+  <circle cx="128" cy="120" r="34" fill="#fff" opacity="0.9"/>
+  <circle cx="168" cy="132" r="42" fill="#fff" opacity="0.9"/>
+  <circle cx="212" cy="120" r="34" fill="#fff" opacity="0.9"/>
+  <rect x="0" y="392" width="512" height="120" fill="#c84c0c"/>
+  <rect x="0" y="392" width="512" height="26" fill="#00a800"/>
+  <!-- coin -->
+  <circle cx="392" cy="150" r="46" fill="#fbd000"/>
+  <circle cx="392" cy="150" r="26" fill="#c99700"/>
+  <!-- character -->
+  <g transform="translate(196 214)">
+    <rect x="-8" y="-40" width="96" height="26" rx="6" fill="#e8433a"/>
+    <rect x="44" y="-32" width="44" height="16" fill="#e8433a"/>
+    <rect x="0" y="-16" width="80" height="52" rx="6" fill="#ffcc99"/>
+    <rect x="18" y="8" width="12" height="20" fill="#000"/>
+    <rect x="8" y="40" width="10" height="34" fill="#e8433a"/>
+    <rect x="-8" y="36" width="96" height="70" rx="8" fill="#2b56d6"/>
+    <rect x="-8" y="36" width="96" height="18" fill="#e8433a"/>
+    <rect x="0" y="100" width="34" height="20" rx="4" fill="#5a2d0c"/>
+    <rect x="46" y="100" width="34" height="20" rx="4" fill="#5a2d0c"/>
+  </g>
+</svg>
