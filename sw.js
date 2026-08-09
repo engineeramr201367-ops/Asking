@@ -1,5 +1,5 @@
 /* Service Worker — network-first عشان أي تحديث يظهر فوراً، ومع كده يشتغل بدون إنترنت */
-const CACHE = "super-run-v4";
+const CACHE = "super-run-v5";
 const ASSETS = [
   "./",
   "./index.html",
