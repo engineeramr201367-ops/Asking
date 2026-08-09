@@ -50,6 +50,7 @@
       ],
       coins: [[8, 5], [16, 5], [29, 4], [30, 4], [31, 4], [34, 5], [47, 5], [51, 4], [52, 4]],
       enemies: [12, 26, 37, 45, 54],
+      pipes: [{ col: 24, warp: true }],
       start: 2,
     },
     {
@@ -70,6 +71,7 @@
       ],
       coins: [[10, 5], [25, 4], [26, 4], [27, 4], [44, 3], [45, 3], [46, 3], [42, 5], [60, 4], [61, 4], [62, 4]],
       enemies: [14, 24, 30, 43, 48, 56, 63],
+      pipes: [{ col: 37, warp: true }],
       start: 2,
     },
     {
@@ -142,6 +144,13 @@
       enemies: [10, 15, 20, 25, 30, 36, 41, 46, 52, 57, 62, 68, 73, 78, 83, 89, 94, 105],
       start: 2,
     },
+    { // مرحلة الزعيم (الأخيرة)
+      width: 22, boss: true,
+      gaps: [],
+      platforms: [{ col: 5, row: 7, len: 2, type: "brick" }, { col: 15, row: 7, len: 2, type: "brick" }],
+      coins: [], enemies: [],
+      start: 2,
+    },
   ];
 
   // ============ حالة اللعبة ============
@@ -151,6 +160,7 @@
   let timeLeft = LEVEL_TIME, timeAcc = 0;
   let solids = [], coinList = [], enemies = [], popCoins = [], powerups = [], fireballs = [], particles = [];
   let flag = null, worldW = 0, worldH = 0, player = null, camX = 0;
+  let warpPipes = [], boss = null, currentWarp = null, inSecret = false, secretReturn = null;
   let playerState = "small"; // small | big | fire (يستمر بين المراحل)
 
   let bestScore = parseInt(localStorage.getItem("superRunBestScore") || "0", 10) || 0;
@@ -166,7 +176,7 @@
     }
   })();
 
-  const keys = { left: false, right: false, jump: false };
+  const keys = { left: false, right: false, jump: false, down: false };
 
   // ============ محرّك الصوت (WebAudio بدون ملفات) ============
   const Sound = (function () {
@@ -231,6 +241,7 @@
       grow() { [523, 784, 1047, 1319].forEach((f, i) => tone(f, 0.09, "square", 0.15, i * 0.05)); }, // التكبير
       hurt() { tone(300, 0.12, "sawtooth", 0.16, 0); tone(200, 0.14, "sawtooth", 0.14, 0.08); }, // الأذى
       fire() { tone(880, 0.06, "square", 0.12, 0); tone(560, 0.08, "square", 0.1, 0.04); }, // رمي النار
+      pipe() { tone(300, 0.12, "sine", 0.16, 0); tone(180, 0.16, "sine", 0.14, 0.1); tone(110, 0.2, "sine", 0.12, 0.22); }, // دخول أنبوب
     };
   })();
 
@@ -242,6 +253,7 @@
   function buildLevel(idx) {
     const cfg = CONFIGS[idx];
     solids = []; coinList = []; enemies = []; popCoins = []; powerups = []; fireballs = []; particles = [];
+    warpPipes = []; boss = null; currentWarp = null; inSecret = false; secretReturn = null;
     worldW = cfg.width * TILE; worldH = 12 * TILE;
     timeLeft = LEVEL_TIME; timeAcc = 0;
     if (idx > progress) { progress = idx; localStorage.setItem("superRunProgress", String(progress)); }
@@ -279,11 +291,26 @@
       const kind = typeof item === "object" && item.type ? item.type : ENEMY_KINDS[col % ENEMY_KINDS.length];
       enemies.push(makeEnemy(col * TILE, START_ROW * TILE, kind));
     }
+    // الأنابيب الخضراء (بعضها يوصّل لغرفة سرية)
+    if (cfg.pipes) for (const pp of cfg.pipes) {
+      for (let r = 8; r <= 9; r++) for (let c = 0; c < 2; c++) solids.push({ x: (pp.col + c) * TILE, y: r * TILE, w: TILE, h: TILE, type: "pipe" });
+      if (pp.warp) warpPipes.push({ x: pp.col * TILE, y: 8 * TILE, w: 2 * TILE });
+    }
     // اللاعب (بحجم يوافق حالته الحالية)
     const sz = PLAYER_SIZES[playerState];
     player = { x: cfg.start * TILE, y: GROUND_ROW * TILE - sz.h, w: sz.w, h: sz.h, vx: 0, vy: 0, onGround: false, face: 1, dead: false, animTime: 0, state: playerState, invuln: 0 };
-    // العلَم في النهاية
-    flag = { x: (cfg.width - 2) * TILE + TILE / 2, y: GROUND_ROW * TILE };
+    if (cfg.boss) {
+      // جدران حلبة الزعيم على الجانبين
+      for (let r = 3; r <= 9; r++) {
+        solids.push({ x: 0, y: r * TILE, w: TILE, h: TILE, type: "pipe" });
+        solids.push({ x: (cfg.width - 1) * TILE, y: r * TILE, w: TILE, h: TILE, type: "pipe" });
+      }
+      boss = { x: (cfg.width / 2) * TILE - 27, y: GROUND_ROW * TILE - 54, w: 54, h: 54, dir: -1, speed: 1.5, vy: 0, hp: 3, maxhp: 3, alive: true, hitCd: 0, animTime: 0, jumpCd: 90 };
+      flag = null;
+    } else {
+      // العلَم في النهاية
+      flag = { x: (cfg.width - 2) * TILE + TILE / 2, y: GROUND_ROW * TILE };
+    }
     camX = 0;
     refreshFireBtn();
   }
@@ -352,6 +379,15 @@
       }
     }
     if (flag && p.x + p.w > flag.x - 6) winLevel();
+
+    // كشف الوقوف على أنبوب سحري + الدخول/الخروج
+    currentWarp = null;
+    if (p.onGround) {
+      for (const wp of warpPipes) {
+        if (p.x + p.w > wp.x + 4 && p.x < wp.x + wp.w - 4 && Math.abs((p.y + p.h) - wp.y) < 6) { currentWarp = wp; break; }
+      }
+    }
+    if (currentWarp && keys.down) { keys.down = false; if (inSecret) exitSecret(); else enterPipe(currentWarp); }
   }
 
   // نطح الطوبة يلتقط الكوين المستقرّ فوقها — يرجّع true لو التقط كوين
@@ -468,8 +504,66 @@
       for (const e of enemies) {
         if (e.alive && rectHit(fb, e)) { e.alive = false; e.dieTime = 0; e.vy = -6; e.flip = true; score += 200; updateHUD(); Sound.stomp(); burst(e.x + e.w / 2, e.y + e.h / 2, PC_FIRE, 12); fb.dead = true; break; }
       }
+      if (boss && boss.alive && !fb.dead && boss.hitCd === 0 && rectHit(fb, boss)) { fb.dead = true; hitBoss(); }
     }
     fireballs = fireballs.filter((fb) => !fb.dead);
+  }
+
+  // ============ الأنابيب والغرفة السرية ============
+  function enterPipe(pipe) {
+    if (inSecret) return;
+    Sound.pipe(); burst(pipe.x + pipe.w / 2, pipe.y + 4, PC_POWER, 12);
+    secretReturn = { solids, coinList, enemies, popCoins, powerups, fireballs, particles, flag, worldW, worldH, warpPipes, boss, entry: { x: pipe.x, w: pipe.w, y: pipe.y } };
+    buildSecretRoom();
+    inSecret = true;
+  }
+  function buildSecretRoom() {
+    solids = []; coinList = []; enemies = []; popCoins = []; powerups = []; fireballs = []; particles = []; boss = null; flag = null; warpPipes = [];
+    worldW = 14 * TILE; worldH = 12 * TILE;
+    for (let c = 0; c < 14; c++) { solids.push({ x: c * TILE, y: 10 * TILE, w: TILE, h: TILE, type: "ground" }); solids.push({ x: c * TILE, y: 11 * TILE, w: TILE, h: TILE, type: "ground" }); }
+    for (let r = 2; r <= 9; r++) { solids.push({ x: 0, y: r * TILE, w: TILE, h: TILE, type: "pipe" }); solids.push({ x: 13 * TILE, y: r * TILE, w: TILE, h: TILE, type: "pipe" }); }
+    for (let row = 0; row < 3; row++) for (let col = 0; col < 6; col++) addCoinXY((3 + col) * TILE + TILE / 2, (5 + row) * TILE + TILE / 2);
+    for (let r = 8; r <= 9; r++) for (let c = 0; c < 2; c++) solids.push({ x: (10 + c) * TILE, y: r * TILE, w: TILE, h: TILE, type: "pipe" });
+    warpPipes.push({ x: 10 * TILE, y: 8 * TILE, w: 2 * TILE, exit: true });
+    player.x = 2 * TILE; player.y = GROUND_ROW * TILE - player.h; player.vx = 0; player.vy = 0; camX = 0;
+  }
+  function exitSecret() {
+    const s = secretReturn; if (!s) return;
+    Sound.pipe();
+    solids = s.solids; coinList = s.coinList; enemies = s.enemies; popCoins = s.popCoins; powerups = s.powerups; fireballs = s.fireballs; particles = s.particles;
+    flag = s.flag; worldW = s.worldW; worldH = s.worldH; warpPipes = s.warpPipes; boss = s.boss;
+    player.x = s.entry.x + (s.entry.w - player.w) / 2; player.y = s.entry.y - player.h; player.vx = 0; player.vy = 0;
+    inSecret = false; secretReturn = null; camX = 0;
+  }
+
+  // ============ الزعيم (Boss) ============
+  function updateBoss() {
+    if (!boss || !boss.alive) return;
+    boss.animTime++;
+    if (boss.hitCd > 0) boss.hitCd--;
+    boss.vy += GRAVITY; if (boss.vy > MAX_FALL) boss.vy = MAX_FALL;
+    boss.x += boss.dir * boss.speed;
+    for (const s of solids) { if (rectHit(boss, s)) { if (boss.dir > 0) boss.x = s.x - boss.w; else boss.x = s.x + s.w; boss.dir = -boss.dir; } }
+    let grounded = false;
+    boss.y += boss.vy;
+    for (const s of solids) { if (rectHit(boss, s)) { if (boss.vy > 0) { boss.y = s.y - boss.h; boss.vy = 0; grounded = true; } else { boss.y = s.y + s.h; boss.vy = 0; } } }
+    boss.jumpCd--;
+    if (grounded && boss.jumpCd <= 0) { boss.vy = -8.5; boss.jumpCd = 50 + boss.hp * 15; }
+    const p = player;
+    if (!p.dead && rectHit(p, boss)) {
+      const stomped = p.vy > 0 && (p.y + p.h) - boss.y < 24;
+      if (stomped && boss.hitCd === 0) { p.vy = JUMP_VELOCITY * 0.7; hitBoss(); }
+      else if (!stomped && boss.hitCd === 0) takeDamage();
+    }
+  }
+  function hitBoss() {
+    boss.hp--; boss.hitCd = 70; boss.speed += 0.7;
+    burst(boss.x + boss.w / 2, boss.y + boss.h / 2, PC_FIRE, 16); Sound.stomp();
+    if (boss.hp <= 0) {
+      boss.alive = false; score += 3000; updateHUD();
+      burst(boss.x + boss.w / 2, boss.y + boss.h / 2, PC_POWER, 32);
+      winLevel();
+    }
   }
 
   // ============ تحديث الأعداء ============
@@ -578,7 +672,8 @@
 
     camX = player.x + player.w / 2 - VW / 2;
     if (camX < 0) camX = 0;
-    if (camX > worldW - VW) camX = worldW - VW;
+    if (worldW > VW && camX > worldW - VW) camX = worldW - VW;
+    else if (worldW <= VW) camX = 0;
 
     drawHills();
 
@@ -590,9 +685,11 @@
     drawPowerups();
     drawFlag();
     drawEnemies();
+    drawBoss();
     drawFireballs();
     drawPlayer();
     drawParticles();
+    if (currentWarp && !player.dead) drawWarpHint(currentWarp);
     ctx.restore();
   }
 
@@ -669,6 +766,17 @@
         const g = ctx.createLinearGradient(0, s.y + by, 0, s.y + by + s.h);
         g.addColorStop(0, "#9a6a2a"); g.addColorStop(1, "#6f4a17");
         rrectGrad(s.x, s.y + by, s.w, s.h, 5, g);
+      } else if (s.type === "pipe") {
+        const g = ctx.createLinearGradient(s.x, 0, s.x + s.w, 0);
+        g.addColorStop(0, "#219a2e"); g.addColorStop(0.4, "#7dffa0"); g.addColorStop(0.6, "#4bd75e"); g.addColorStop(1, "#177a24");
+        ctx.fillStyle = g; ctx.fillRect(s.x, s.y, s.w, s.h);
+        ctx.strokeStyle = "rgba(0,50,0,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(s.x + 0.5, s.y + 0.5, s.w - 1, s.h - 1);
+        const hasAbove = solids.some((o) => o.type === "pipe" && o.x === s.x && o.y === s.y - TILE);
+        if (!hasAbove) { // حافة الأنبوب العلوية
+          ctx.fillStyle = "#2fbf40"; ctx.fillRect(s.x - 3, s.y - 2, s.w + 6, 10);
+          ctx.fillStyle = "#9dffbc"; ctx.fillRect(s.x - 3, s.y - 2, s.w + 6, 3);
+          ctx.strokeStyle = "rgba(0,50,0,0.35)"; ctx.strokeRect(s.x - 2.5, s.y - 1.5, s.w + 5, 9);
+        }
       }
     }
   }
@@ -757,6 +865,45 @@
       ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.beginPath(); ctx.arc(-2, -2, 2, 0, 7); ctx.fill();
       ctx.restore();
     }
+  }
+
+  function drawBoss() {
+    if (!boss || !boss.alive) return;
+    if (boss.x + boss.w < camX || boss.x > camX + VW) return;
+    const cx = boss.x + boss.w / 2, cy = boss.y + boss.h / 2;
+    // ظل
+    ctx.fillStyle = "rgba(0,0,0,0.22)"; ctx.beginPath(); ctx.ellipse(cx, boss.y + boss.h, boss.w / 2.1, 6, 0, 0, 7); ctx.fill();
+    const flash = boss.hitCd > 0 && Math.floor(boss.hitCd / 5) % 2 === 0;
+    // جسم
+    const g = ctx.createRadialGradient(cx - 8, cy - 8, 4, cx, cy, boss.w / 2);
+    g.addColorStop(0, flash ? "#ffffff" : "#8a3ad6"); g.addColorStop(1, flash ? "#ffb0b0" : "#4b1d86");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(cx, cy, boss.w / 2, boss.h / 2, 0, 0, 7); ctx.fill();
+    // أشواك حول الرأس
+    ctx.fillStyle = flash ? "#fff" : "#ffd21a";
+    for (let i = 0; i < 7; i++) {
+      const a = -Math.PI + i * (Math.PI / 6);
+      const sx = cx + Math.cos(a) * (boss.w / 2 - 2), sy = cy + Math.sin(a) * (boss.h / 2 - 2);
+      ctx.beginPath(); ctx.moveTo(sx - 4, sy); ctx.lineTo(sx + Math.cos(a) * 9, sy + Math.sin(a) * 9); ctx.lineTo(sx + 4, sy); ctx.fill();
+    }
+    // عيون غاضبة
+    const dir = boss.dir;
+    ctx.fillStyle = "#fff"; ctx.fillRect(cx - 14, cy - 6, 12, 12); ctx.fillRect(cx + 2, cy - 6, 12, 12);
+    ctx.fillStyle = "#c00"; ctx.fillRect(cx - 12 + dir * 3, cy - 2, 5, 6); ctx.fillRect(cx + 6 + dir * 3, cy - 2, 5, 6);
+    ctx.strokeStyle = flash ? "#fff" : "#2a0f52"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(cx - 15, cy - 10); ctx.lineTo(cx - 3, cy - 6); ctx.moveTo(cx + 15, cy - 10); ctx.lineTo(cx + 3, cy - 6); ctx.stroke();
+    // فم
+    ctx.fillStyle = "#2a0f52"; ctx.fillRect(cx - 8, cy + 9, 16, 4);
+    // شريط الصحة
+    const bw = 46, bx = cx - bw / 2, byy = boss.y - 12;
+    ctx.fillStyle = "rgba(0,0,0,0.4)"; ctx.fillRect(bx - 1, byy - 1, bw + 2, 7);
+    ctx.fillStyle = "#e23b2e"; ctx.fillRect(bx, byy, bw * (boss.hp / boss.maxhp), 5);
+  }
+  function drawWarpHint(wp) {
+    const bob = Math.sin(performance.now() / 200) * 3;
+    const x = wp.x + wp.w / 2, y = wp.y - 16 + bob;
+    ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x - 8, y - 8); ctx.lineTo(x + 8, y - 8); ctx.lineTo(x, y + 4); ctx.closePath();
+    ctx.fill(); ctx.stroke();
   }
 
   function drawFlag() {
@@ -920,7 +1067,7 @@
 
   // ============ الحلقة الرئيسية ============
   function loop() {
-    if (state === "playing") { updatePlayer(); updateEnemies(); updatePopCoins(); updatePowerups(); updateFireballs(); updateTimer(); updateParticles(); }
+    if (state === "playing") { updatePlayer(); updateEnemies(); updateBoss(); updatePopCoins(); updatePowerups(); updateFireballs(); updateTimer(); updateParticles(); updateWarpBtn(); }
     else if (state === "dying") { updateDeath(); updatePopCoins(); updateParticles(); }
     else if (state === "win-anim" || state === "dead") { updatePopCoins(); }
     if (player && (state === "playing" || state === "dying" || state === "win-anim" || state === "dead" || state === "win")) draw();
@@ -959,11 +1106,13 @@
     if (e.code === "ArrowRight" || e.code === "KeyD") keys.right = true;
     if (e.code === "ArrowUp" || e.code === "Space" || e.code === "KeyW") { keys.jump = true; e.preventDefault(); }
     if ((e.code === "KeyF" || e.code === "KeyX" || e.code === "ShiftLeft") && !e.repeat) throwFire();
+    if (e.code === "ArrowDown" || e.code === "KeyS") { keys.down = true; e.preventDefault(); }
   });
   addEventListener("keyup", (e) => {
     if (e.code === "ArrowLeft" || e.code === "KeyA") keys.left = false;
     if (e.code === "ArrowRight" || e.code === "KeyD") keys.right = false;
     if (e.code === "ArrowUp" || e.code === "Space" || e.code === "KeyW") keys.jump = false;
+    if (e.code === "ArrowDown" || e.code === "KeyS") keys.down = false;
   });
   function bindTouch(id, onDown, onUp) {
     const el = document.getElementById(id);
@@ -978,11 +1127,21 @@
   bindTouch("btn-right", () => (keys.right = true), () => (keys.right = false));
   bindTouch("btn-jump", () => (keys.jump = true), () => (keys.jump = false));
   bindTouch("btn-fire", () => throwFire(), () => {});
+  bindTouch("btn-down", () => (keys.down = true), () => (keys.down = false));
 
   // زر النار يظهر مفعّلاً فقط في حالة زهرة النار
   function refreshFireBtn() {
     const b = document.getElementById("btn-fire");
     if (b) b.style.opacity = (player && player.state === "fire") ? "1" : "0.35";
+  }
+  // زر النزول يظهر فقط فوق أنبوب سحري
+  let lastWarpShown = null;
+  function updateWarpBtn() {
+    const show = !!currentWarp;
+    if (show === lastWarpShown) return;
+    lastWarpShown = show;
+    const b = document.getElementById("btn-down");
+    if (b) b.style.display = show ? "flex" : "none";
   }
   document.getElementById("start-btn").addEventListener("click", startGame);
   document.getElementById("restart-btn").addEventListener("click", startGame);
