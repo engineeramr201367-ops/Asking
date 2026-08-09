@@ -644,9 +644,22 @@
   resize();
 
   // تسجيل الـ Service Worker (لتشغيل اللعبة كتطبيق يعمل بدون إنترنت)
+  // مع تحديث ذاتي: لو ظهرت نسخة جديدة، الصفحة تتحدّث مرة واحدة تلقائياً.
   if ("serviceWorker" in navigator) {
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing) return;
+      refreshing = true;
+      location.reload();
+    });
     addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch(() => {});
+      navigator.serviceWorker.register("sw.js").then((reg) => {
+        reg.update();
+        // افحص وجود تحديث كل مرة يرجع فيها التطبيق للواجهة
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) reg.update();
+        });
+      }).catch(() => {});
     });
   }
 
