@@ -90,6 +90,34 @@
       "XXXXX  XXXXXXXX  XXXX  XXXXXXXXXX  XXXX  XXXXXXX  XXXX  XXXXXXXXXX  XXXX  XXXXXXXXXXXXXXX  XXXX  ",
       "XXXXX  XXXXXXXX  XXXX  XXXXXXXXXX  XXXX  XXXXXXX  XXXX  XXXXXXXXXX  XXXX  XXXXXXXXXXXXXXX  XXXX  ",
     ],
+    [
+      "                                                                                                        ",
+      "                    C C C                                                                                ",
+      "        C          BB???BB              E E E E                          C C C C                         ",
+      "       ???                        C C C                    ? ? ?        BB?????BB                        ",
+      "                            C            BBBBBB                                        E E E          F  ",
+      "    E E      C C       ?              C          C C        E E E    C            ??                  F  ",
+      "  BBBB    XXXXXXX   BB      ? ?    XXXXXXX   E          XXXXXXXXX          BBBB          E   E         F  ",
+      "                          XXXXX          BBBB      E E          XXXXXXX       ? ?    XXXXXXX          F  ",
+      "P     E        ?               E              ?             E E E        ?              BBBBBBB   ?   F  ",
+      "XXXX  XXXXXX  XXX  XXXX  XXXXXXXX  XXX  XXXXX  XXX  XXXXXXXX  XXX  XXXXX  XXX  XXXXXXXX  XXXXXXXXXXX  XX  ",
+      "XXXX  XXXXXX  XXX  XXXX  XXXXXXXX  XXX  XXXXX  XXX  XXXXXXXX  XXX  XXXXX  XXX  XXXXXXXX  XXXXXXXXXXX  XXX ",
+      "XXXX  XXXXXX  XXX  XXXX  XXXXXXXX  XXX  XXXXX  XXX  XXXXXXXX  XXX  XXXXX  XXX  XXXXXXXX  XXXXXXXXXXX  XXX ",
+    ],
+    [
+      "                                                                                                                  ",
+      "     C C C C C                                                                                                     ",
+      "    BB?????BB                    E E E E E                              C C C C C                                  ",
+      "                      C C C                        ? ? ? ?            BB???????BB                                  ",
+      "                  ?  BBBBB  ?          C C C                                              E E E E              F   ",
+      "   E E E    C C                  ?              ?           E E E E    C C C        ? ?                        F   ",
+      " BBBBB   XXXXXXXX   BBB    ? ?  XXXXXXXXX   E E        XXXXXXXXXX          BBBBB          E E E              ??  F   ",
+      "                          XXXXXX          BBBBB   E E E          XXXXXXXX       ? ?    XXXXXXXXX             F   ",
+      "P    E E       ? ?             E E             ? ?          E E E E E     ? ?             BBBBBBBB    ? ?    F   ",
+      "XXX  XXXXX  XX  XXX  XXXXXXX  XX  XXXX  XX  XXXXXXX  XX  XXXX  XX  XXXXXXX  XX  XXXX  XX  XXXXXXXXXXX  XXXXX  XX   ",
+      "XXX  XXXXX  XX  XXX  XXXXXXX  XX  XXXX  XX  XXXXXXX  XX  XXXX  XX  XXXXXXX  XX  XXXX  XX  XXXXXXXXXXX  XXXXX  XXX  ",
+      "XXX  XXXXX  XX  XXX  XXXXXXX  XX  XXXX  XX  XXXXXXX  XX  XXXX  XX  XXXXXXX  XX  XXXX  XX  XXXXXXXXXXX  XXXXX  XXX  ",
+    ],
   ];
 
   // ============ حالة اللعبة ============
@@ -106,7 +134,60 @@
   let player = null;
   let camX = 0;
 
+  let bestScore = parseInt(localStorage.getItem("superRunBest") || "0", 10) || 0;
+  (function showBestOnStart() {
+    const el = document.getElementById("best-line");
+    if (el && bestScore > 0) el.textContent = "🏆 أفضل نتيجة: " + bestScore + " عملة";
+  })();
+
   const keys = { left: false, right: false, jump: false };
+
+  // ============ محرّك الصوت (WebAudio بدون ملفات) ============
+  const Sound = (function () {
+    let ac = null;
+    let muted = localStorage.getItem("superRunMuted") === "1";
+
+    function ctx() {
+      if (!ac) {
+        try { ac = new (window.AudioContext || window.webkitAudioContext)(); }
+        catch (e) { ac = null; }
+      }
+      if (ac && ac.state === "suspended") ac.resume();
+      return ac;
+    }
+
+    // نغمة واحدة
+    function tone(freq, dur, type, vol, whenOffset) {
+      if (muted) return;
+      const a = ctx(); if (!a) return;
+      const t0 = a.currentTime + (whenOffset || 0);
+      const osc = a.createOscillator();
+      const g = a.createGain();
+      osc.type = type || "square";
+      osc.frequency.setValueAtTime(freq, t0);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol || 0.15, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(g); g.connect(a.destination);
+      osc.start(t0); osc.stop(t0 + dur + 0.02);
+    }
+
+    return {
+      isMuted: () => muted,
+      toggle() {
+        muted = !muted;
+        localStorage.setItem("superRunMuted", muted ? "1" : "0");
+        if (!muted) tone(660, 0.08, "square", 0.15, 0);
+        return muted;
+      },
+      resume() { ctx(); },
+      jump()  { tone(420, 0.14, "square", 0.14, 0); tone(700, 0.12, "square", 0.12, 0.05); },
+      coin()  { tone(988, 0.07, "square", 0.14, 0); tone(1319, 0.12, "square", 0.13, 0.06); },
+      stomp() { tone(200, 0.12, "sawtooth", 0.18, 0); tone(120, 0.14, "sawtooth", 0.14, 0.05); },
+      die()   { tone(400, 0.15, "square", 0.16, 0); tone(300, 0.15, "square", 0.15, 0.12); tone(150, 0.3, "square", 0.15, 0.24); },
+      win()   { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.16, "square", 0.16, i * 0.12)); },
+    };
+  })();
 
   // ============ بناء المرحلة من الخريطة ============
   function buildLevel(idx) {
@@ -163,6 +244,7 @@
     if (keys.jump && p.onGround) {
       p.vy = JUMP_VELOCITY;
       p.onGround = false;
+      Sound.jump();
     }
 
     // جاذبية
@@ -191,7 +273,7 @@
         else if (p.vy < 0) {
           p.y = s.y + s.h; p.vy = 0;
           // نطح الصندوق يعطي عملة
-          if (s.type === "block") { s.type = "used"; coins++; updateHUD(); }
+          if (s.type === "block") { s.type = "used"; coins++; updateHUD(); Sound.coin(); }
         }
       }
     }
@@ -206,7 +288,7 @@
       if (!coin.got) {
         const cx = coin.x, cy = coin.y;
         if (cx > p.x - 6 && cx < p.x + p.w + 6 && cy > p.y - 6 && cy < p.y + p.h + 6) {
-          coin.got = true; coins++; updateHUD();
+          coin.got = true; coins++; updateHUD(); Sound.coin();
         }
       }
     }
@@ -253,7 +335,7 @@
         if (stomped) {
           e.alive = false; e.dieTime = 0;
           p.vy = JUMP_VELOCITY * 0.6; // ارتداد
-          coins++; updateHUD();
+          coins++; updateHUD(); Sound.stomp();
         } else {
           killPlayer();
         }
@@ -269,6 +351,7 @@
     player.dead = true;
     lives--;
     updateHUD();
+    Sound.die();
     setTimeout(() => {
       if (lives > 0) { buildLevel(level); state = "playing"; }
       else endGame(false);
@@ -278,6 +361,7 @@
   function winLevel() {
     if (state !== "playing") return;
     state = "win-anim";
+    Sound.win();
     setTimeout(() => {
       level++;
       if (level < LEVELS.length) {
@@ -290,13 +374,16 @@
 
   function endGame(won) {
     state = won ? "win" : "dead";
+    let isRecord = false;
+    if (coins > bestScore) { bestScore = coins; localStorage.setItem("superRunBest", String(bestScore)); isRecord = true; }
     document.getElementById("hud").classList.add("hidden");
     document.getElementById("controls").classList.add("hidden");
     const es = document.getElementById("end-screen");
     document.getElementById("end-emoji").textContent = won ? "🏆" : "💀";
     document.getElementById("end-title").textContent = won ? "مبروك! أنهيت اللعبة" : "انتهت اللعبة";
-    document.getElementById("end-msg").textContent =
-      (won ? "أنت بطل حقيقي! " : "حاول مرة أخرى. ") + "جمعت " + coins + " عملة 🪙";
+    document.getElementById("end-msg").innerHTML =
+      (won ? "أنت بطل حقيقي! " : "حاول مرة أخرى. ") + "جمعت " + coins + " عملة 🪙" +
+      "<br/>" + (isRecord ? "🎉 رقم قياسي جديد!" : "أفضل نتيجة: " + bestScore + " 🪙");
     es.classList.remove("hidden");
   }
 
@@ -489,10 +576,13 @@
     document.getElementById("hud-coins").textContent = coins;
     document.getElementById("hud-level").textContent = level + 1;
     document.getElementById("hud-lives").textContent = lives;
+    const best = document.getElementById("hud-best");
+    if (best) best.textContent = Math.max(bestScore, coins);
   }
 
   // ============ بدء / إعادة اللعبة ============
   function startGame() {
+    Sound.resume();
     level = 0; coins = 0; lives = 3;
     buildLevel(0);
     updateHUD();
@@ -534,6 +624,14 @@
 
   document.getElementById("start-btn").addEventListener("click", startGame);
   document.getElementById("restart-btn").addEventListener("click", startGame);
+
+  // زر كتم/تشغيل الصوت
+  const muteBtn = document.getElementById("btn-mute");
+  function refreshMuteIcon() { muteBtn.textContent = Sound.isMuted() ? "🔇" : "🔊"; }
+  if (muteBtn) {
+    refreshMuteIcon();
+    muteBtn.addEventListener("click", () => { Sound.toggle(); refreshMuteIcon(); });
+  }
 
   // ============ ضبط حجم الكانفس ليملأ الشاشة مع الحفاظ على النسبة ============
   function resize() {

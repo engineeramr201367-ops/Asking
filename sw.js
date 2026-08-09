@@ -1,5 +1,5 @@
 /* Service Worker — يخزّن ملفات اللعبة لتعمل بدون إنترنت كتطبيق */
-const CACHE = "super-run-v1";
+const CACHE = "super-run-v2";
 const ASSETS = [
   "./",
   "./index.html",

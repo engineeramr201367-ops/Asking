@@ -80,6 +80,14 @@
     text-shadow: 2px 2px 0 rgba(0,0,0,.35);
   }
   #hud .box { background: rgba(0,0,0,.25); padding: 4px 12px; border-radius: 8px; }
+
+  /* زر كتم الصوت */
+  #btn-mute {
+    position: fixed; z-index: 25;
+    top: max(10px, env(safe-area-inset-top)); right: 12px;
+    width: 44px; height: 44px; font-size: 22px;
+    bottom: auto; pointer-events: auto;
+  }
 </style>
 </head>
 <body>
@@ -91,7 +99,10 @@
   <div class="box">🪙 <span id="hud-coins">0</span></div>
   <div class="box">المرحلة <span id="hud-level">1</span></div>
   <div class="box">❤️ <span id="hud-lives">3</span></div>
+  <div class="box">🏆 <span id="hud-best">0</span></div>
 </div>
+
+<div id="btn-mute" class="btn">🔊</div>
 
 <div id="controls" class="hidden">
   <div id="btn-left"  class="btn">◀</div>
@@ -104,6 +115,7 @@
   <h1>سوبر جـري</h1>
   <p>اجمع العملات 🪙، اقفز فوق الأعداء 👾، ووصّل للعلَم 🚩 في نهاية كل مرحلة!</p>
   <p style="opacity:.8">الجوال: استخدم أزرار ◀ ▶ للحركة و ⤴ للقفز.<br/>الكمبيوتر: الأسهم أو A/D للحركة، ومسافة/سهم لأعلى للقفز.</p>
+  <p id="best-line" style="font-weight:bold"></p>
   <button class="play-btn" id="start-btn">▶ ابدأ اللعب</button>
   <div class="hint">اضغط على "تثبيت" في متصفحك لإضافتها كتطبيق على شاشتك</div>
 </div>
