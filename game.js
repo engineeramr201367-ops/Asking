@@ -211,10 +211,11 @@
     for (const p of cfg.platforms) {
       const row = p.row < 6 ? 6 : (p.row > 7 ? 7 : p.row);
       for (let i = 0; i < p.len; i++) {
-        solids.push({ x: (p.col + i) * TILE, y: row * TILE, w: TILE, h: TILE, type: p.type });
+        const s = { x: (p.col + i) * TILE, y: row * TILE, w: TILE, h: TILE, type: p.type };
+        solids.push(s);
+        // كوين يستقرّ فوق الطوب فقط (مش فوق صناديق ؟). نطح الطوبة من تحت يلتقطه.
+        if (p.type === "brick") addCoinXY(s.x + TILE / 2, s.y - 15);
       }
-      // كوين فوق كل بلاطة منصّة مباشرة (تلتقطه وأنت تقفز عليها) — دايماً قابل للوصول
-      for (let i = 0; i < p.len; i++) addCoin(p.col + i, row - 1);
     }
     // كوينات أقواس فوق كل فجوة، على ارتفاع منخفض قابل للوصول (يرشدك للقفز)
     for (const g of cfg.gaps) {
@@ -222,19 +223,31 @@
       addCoin(s - 1, 8); addCoin(s + w, 8);
       for (let i = 0; i < w; i++) addCoin(s + i, 7);
     }
-    // الأعداء على الأرض
-    for (const col of cfg.enemies) enemies.push(makeEnemy(col * TILE, START_ROW * TILE));
+    // الأعداء على الأرض — بأنواع/أشكال مختلفة
+    for (let k = 0; k < cfg.enemies.length; k++) {
+      const item = cfg.enemies[k];
+      const col = typeof item === "object" ? item.col : item;
+      const kind = typeof item === "object" && item.type ? item.type : ENEMY_KINDS[col % ENEMY_KINDS.length];
+      enemies.push(makeEnemy(col * TILE, START_ROW * TILE, kind));
+    }
     // اللاعب
-    player = { x: cfg.start * TILE, y: START_ROW * TILE - 6, w: 22, h: 30, vx: 0, vy: 0, onGround: false, face: 1, dead: false, animTime: 0 };
+    player = { x: cfg.start * TILE, y: START_ROW * TILE - 8, w: 24, h: 32, vx: 0, vy: 0, onGround: false, face: 1, dead: false, animTime: 0 };
     // العلَم في النهاية
     flag = { x: (cfg.width - 2) * TILE + TILE / 2, y: GROUND_ROW * TILE };
     camX = 0;
   }
-  function addCoin(col, row) {
-    coinList.push({ x: col * TILE + TILE / 2, y: row * TILE + TILE / 2, got: false, phase: col * 0.6 });
-  }
-  function makeEnemy(x, y) {
-    return { x: x + 2, y: y, w: 26, h: 26, vx: -1.15, vy: 0, alive: true, dieTime: 0, animTime: 0 };
+  function addCoin(col, row) { addCoinXY(col * TILE + TILE / 2, row * TILE + TILE / 2); }
+  function addCoinXY(x, y) { coinList.push({ x: x, y: y, got: false, phase: x * 0.02 }); }
+
+  // أنواع الأعداء (أشكال مختلفة)
+  const ENEMY_KINDS = ["goomba", "koopa", "spike"];
+  function makeEnemy(x, y, kind) {
+    const spec = {
+      goomba: { w: 26, h: 24, speed: 1.15 },
+      koopa: { w: 26, h: 30, speed: 0.95 },
+      spike: { w: 26, h: 22, speed: 1.4 },
+    }[kind] || { w: 26, h: 24, speed: 1.15 };
+    return { x: x + 2, y: y + (26 - spec.h), w: spec.w, h: spec.h, vx: -spec.speed, vy: 0, alive: true, dieTime: 0, animTime: 0, kind: kind };
   }
 
   // ============ كشف التصادم ============
@@ -272,7 +285,7 @@
         else if (p.vy < 0) {
           p.y = s.y + s.h; p.vy = 0;
           if (s.type === "block") { s.type = "used"; s.bump = 8; spawnPopCoin(s.x + s.w / 2, s.y); }
-          else if (s.type === "brick") { s.bump = 6; }
+          else if (s.type === "brick") { s.bump = 6; collectCoinOn(s); }
         }
       }
     }
@@ -286,6 +299,16 @@
       }
     }
     if (flag && p.x + p.w > flag.x - 6) winLevel();
+  }
+
+  // نطح الطوبة يلتقط الكوين المستقرّ فوقها
+  function collectCoinOn(s) {
+    for (const coin of coinList) {
+      if (coin.got) continue;
+      if (Math.abs(coin.x - (s.x + s.w / 2)) < 16 && coin.y > s.y - 26 && coin.y < s.y) {
+        coin.got = true; spawnPopCoin(coin.x, s.y - 4);
+      }
+    }
   }
 
   // كوين يطلع من الصندوق
@@ -308,9 +331,21 @@
       for (const s of solids) {
         if (rectHit(e, s)) { if (e.vx > 0) e.x = s.x - e.w; else e.x = s.x + s.w; e.vx = -e.vx; }
       }
+      let grounded = false;
       e.y += e.vy;
       for (const s of solids) {
-        if (rectHit(e, s)) { if (e.vy > 0) { e.y = s.y - e.h; e.vy = 0; } else { e.y = s.y + s.h; e.vy = 0; } }
+        if (rectHit(e, s)) { if (e.vy > 0) { e.y = s.y - e.h; e.vy = 0; grounded = true; } else { e.y = s.y + s.h; e.vy = 0; } }
+      }
+      // كشف الحافة: لو مفيش أرض أمامه وهو واقف، يلفّ بدل ما يقع في الفجوة
+      if (grounded) {
+        const dir = e.vx >= 0 ? 1 : -1;
+        const probeX = dir > 0 ? e.x + e.w + 2 : e.x - 2;
+        const probeY = e.y + e.h + 3;
+        let groundAhead = false;
+        for (const s of solids) {
+          if (probeX >= s.x && probeX < s.x + s.w && probeY >= s.y && probeY < s.y + s.h) { groundAhead = true; break; }
+        }
+        if (!groundAhead) e.vx = -e.vx;
       }
       if (e.y > worldH + 60) e.alive = false;
 
@@ -514,20 +549,67 @@
 
   function drawEnemies() {
     for (const e of enemies) {
-      if (e.x + e.w < camX || e.x > camX + VW) continue;
-      if (!e.alive) { ctx.fillStyle = C.enemyDark; ctx.fillRect(e.x, e.y + e.h - 8, e.w, 8); continue; }
-      const wob = Math.floor(e.animTime / 8) % 2;
+      if (e.x + e.w < camX - 4 || e.x > camX + VW + 4) continue;
       // ظل
       ctx.fillStyle = "rgba(0,0,0,0.18)"; ctx.beginPath();
       ctx.ellipse(e.x + e.w / 2, e.y + e.h, e.w / 2.2, 4, 0, 0, 7); ctx.fill();
-      const g = ctx.createRadialGradient(e.x + e.w / 2 - 4, e.y + e.h / 2 - 4, 2, e.x + e.w / 2, e.y + e.h / 2, e.w / 2);
-      g.addColorStop(0, "#b5732f"); g.addColorStop(1, C.enemyDark);
-      ctx.fillStyle = g; ctx.beginPath();
-      ctx.ellipse(e.x + e.w / 2, e.y + e.h / 2, e.w / 2, e.h / 2, 0, 0, 7); ctx.fill();
-      ctx.fillStyle = "#fff"; ctx.fillRect(e.x + 5, e.y + 8, 6, 8); ctx.fillRect(e.x + e.w - 11, e.y + 8, 6, 8);
-      ctx.fillStyle = "#000"; ctx.fillRect(e.x + 7, e.y + 11, 3, 4); ctx.fillRect(e.x + e.w - 9, e.y + 11, 3, 4);
-      ctx.fillStyle = C.enemyFoot; ctx.fillRect(e.x + 2, e.y + e.h - 4, 8, 5 + wob); ctx.fillRect(e.x + e.w - 10, e.y + e.h - 4, 8, 5 + (1 - wob));
+      if (!e.alive) { // مهروس
+        ctx.fillStyle = C.enemyDark; rrect(e.x, e.y + e.h - 7, e.w, 7, 3, C.enemyDark); continue;
+      }
+      const cx = e.x + e.w / 2, wob = Math.floor(e.animTime / 8) % 2;
+      const dir = e.vx >= 0 ? 1 : -1;
+      if (e.kind === "koopa") drawKoopa(e, cx, wob, dir);
+      else if (e.kind === "spike") drawSpike(e, cx, wob, dir);
+      else drawGoomba(e, cx, wob, dir);
     }
+  }
+  function eyes(e, cx, dir) {
+    const ox = dir * 2;
+    ctx.fillStyle = "#fff"; ctx.fillRect(cx - 9 + ox, e.y + 7, 6, 8); ctx.fillRect(cx + 3 + ox, e.y + 7, 6, 8);
+    ctx.fillStyle = "#000"; ctx.fillRect(cx - 6 + ox + dir, e.y + 10, 3, 4); ctx.fillRect(cx + 6 + ox + dir, e.y + 10, 3, 4);
+  }
+  function drawGoomba(e, cx, wob, dir) {
+    const g = ctx.createRadialGradient(cx - 4, e.y + e.h / 2 - 4, 2, cx, e.y + e.h / 2, e.w / 2);
+    g.addColorStop(0, "#b5732f"); g.addColorStop(1, C.enemyDark);
+    ctx.fillStyle = g; ctx.beginPath();
+    ctx.ellipse(cx, e.y + e.h / 2, e.w / 2, e.h / 2, 0, 0, 7); ctx.fill();
+    eyes(e, cx, dir);
+    // حاجب غاضب
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.beginPath();
+    ctx.moveTo(cx - 9, e.y + 5); ctx.lineTo(cx - 2, e.y + 8);
+    ctx.moveTo(cx + 9, e.y + 5); ctx.lineTo(cx + 2, e.y + 8); ctx.stroke();
+    ctx.fillStyle = C.enemyFoot; ctx.fillRect(e.x + 2, e.y + e.h - 4, 8, 5 + wob); ctx.fillRect(e.x + e.w - 10, e.y + e.h - 4, 8, 5 + (1 - wob));
+  }
+  function drawKoopa(e, cx, wob, dir) {
+    // أقدام
+    ctx.fillStyle = "#e0a030"; ctx.fillRect(e.x + 3, e.y + e.h - 5, 7, 5 + wob); ctx.fillRect(e.x + e.w - 10, e.y + e.h - 5, 7, 5 + (1 - wob));
+    // صدفة خضراء
+    const g = ctx.createRadialGradient(cx - 4, e.y + e.h / 2, 2, cx, e.y + e.h / 2, e.w / 2 + 2);
+    g.addColorStop(0, "#7ed957"); g.addColorStop(1, "#2f9e3f");
+    ctx.fillStyle = g; ctx.beginPath();
+    ctx.ellipse(cx, e.y + e.h * 0.62, e.w / 2, e.h * 0.38, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = "#1d6b2a"; ctx.lineWidth = 1.5; ctx.stroke();
+    // نقوش الصدفة
+    ctx.beginPath(); ctx.moveTo(cx, e.y + e.h * 0.3); ctx.lineTo(cx, e.y + e.h); ctx.stroke();
+    // رأس
+    ctx.fillStyle = "#e0c060"; ctx.beginPath(); ctx.arc(cx + dir * 4, e.y + 8, 7, 0, 7); ctx.fill();
+    ctx.fillStyle = "#000"; ctx.fillRect(cx + dir * 6, e.y + 5, 2, 3);
+  }
+  function drawSpike(e, cx, wob, dir) {
+    // جسم أحمر
+    const g = ctx.createRadialGradient(cx - 4, e.y + e.h / 2 - 3, 2, cx, e.y + e.h / 2, e.w / 2);
+    g.addColorStop(0, "#ff6b5e"); g.addColorStop(1, "#b52a1e");
+    ctx.fillStyle = g; ctx.beginPath();
+    ctx.ellipse(cx, e.y + e.h / 2, e.w / 2, e.h / 2, 0, 0, 7); ctx.fill();
+    // أشواك فوق
+    ctx.fillStyle = "#ffd21a";
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(cx + i * 8 - 4, e.y + 2); ctx.lineTo(cx + i * 8, e.y - 6); ctx.lineTo(cx + i * 8 + 4, e.y + 2);
+      ctx.fill();
+    }
+    eyes(e, cx, dir);
+    ctx.fillStyle = "#000"; ctx.fillRect(e.x + 2, e.y + e.h - 4, 8, 5 + wob); ctx.fillRect(e.x + e.w - 10, e.y + e.h - 4, 8, 5 + (1 - wob));
   }
 
   function drawPlayer() {
@@ -539,21 +621,73 @@
     ctx.save();
     ctx.translate(p.x + p.w / 2, p.y);
     if (p.face < 0) ctx.scale(-1, 1);
-    const step = Math.floor(p.animTime / 6) % 2;
-    const legShift = p.onGround && Math.abs(p.vx) > 0.1 ? step * 3 : 0;
+    const walking = p.onGround && Math.abs(p.vx) > 0.1;
+    const step = Math.floor(p.animTime / 5) % 2;
+    const jumping = !p.onGround;
     if (p.dead) ctx.globalAlpha = 0.5;
 
-    ctx.fillStyle = C.shoe; ctx.fillRect(-9, p.h - 5, 8, 5); ctx.fillRect(1 + legShift, p.h - 5, 8, 5);
-    ctx.fillStyle = C.overall; ctx.fillRect(-9, 16, 18, p.h - 21);
-    ctx.fillStyle = "#1e3fa8"; ctx.fillRect(-2, 18, 4, 8); // زر أفرول
-    ctx.fillStyle = C.body; ctx.fillRect(-9, 11, 18, 8);
-    ctx.fillStyle = C.skin; ctx.fillRect(6, 14, 5, 8); // يد
-    ctx.fillStyle = C.skin; ctx.fillRect(-8, 0, 16, 12); // رأس
-    ctx.fillStyle = C.cap; ctx.fillRect(-9, -2, 18, 5); ctx.fillRect(2, 0, 9, 3); // قبعة
-    ctx.fillStyle = "#000"; ctx.fillRect(3, 4, 2, 4); // عين
-    ctx.fillStyle = "#6b3d1a"; ctx.fillRect(2, 9, 7, 2); // شارب
+    // ===== الأحذية =====
+    ctx.fillStyle = C.shoe;
+    if (jumping) { rr(-11, 27, 9, 5, 2); rr(3, 25, 9, 5, 2); }
+    else if (walking) {
+      const a = step ? 3 : -1, b = step ? -1 : 3;
+      rr(-11 - a, 28, 9, 4, 2); rr(3 + b, 28, 9, 4, 2);
+    } else { rr(-11, 28, 9, 4, 2); rr(3, 28, 9, 4, 2); }
+
+    // ===== أفرول أزرق (سروال) =====
+    ctx.fillStyle = C.overall; rr(-10, 17, 20, 13, 3);
+    // أرجل الأفرول
+    rr(-10, 24, 8, 8, 2); rr(2, 24, 8, 8, 2);
+    // حمّالات الأفرول لأعلى
+    ctx.fillStyle = C.overall; ctx.fillRect(-8, 9, 4, 10); ctx.fillRect(4, 9, 4, 10);
+    // أزرار صفراء
+    ctx.fillStyle = "#ffd21a"; ctx.beginPath(); ctx.arc(-6, 18, 2, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(6, 18, 2, 0, 7); ctx.fill();
+
+    // ===== قميص أحمر + أكمام =====
+    ctx.fillStyle = C.body; rr(-10, 9, 20, 9, 3);
+    // كتف/كم أمامي
+    rr(6, 11, 7, 8, 3);
+
+    // ===== يد بقفاز أبيض =====
+    ctx.fillStyle = "#ffffff";
+    const handY = jumping ? 8 : 15;
+    ctx.beginPath(); ctx.arc(11, handY, 4, 0, 7); ctx.fill();
+    ctx.strokeStyle = "#d0d0d0"; ctx.lineWidth = 0.8; ctx.stroke();
+
+    // ===== الرأس =====
+    ctx.fillStyle = C.skin; rr(-8, -3, 16, 14, 6);
+    // أذن
+    ctx.beginPath(); ctx.arc(-7, 5, 3, 0, 7); ctx.fill();
+    // سالفة (شعر)
+    ctx.fillStyle = "#5a3212"; ctx.fillRect(-9, 2, 3, 7);
+    // أنف
+    ctx.fillStyle = "#ffbe86"; ctx.beginPath(); ctx.arc(8, 5, 3.4, 0, 7); ctx.fill();
+    // عين
+    ctx.fillStyle = "#1b3a6b"; ctx.fillRect(3, 0, 2.5, 5);
+    // حاجب
+    ctx.fillStyle = "#5a3212"; ctx.fillRect(2, -2, 5, 2);
+    // شارب
+    ctx.fillStyle = "#4a2a0e";
+    ctx.beginPath();
+    ctx.moveTo(2, 8); ctx.quadraticCurveTo(9, 7, 12, 10);
+    ctx.quadraticCurveTo(9, 9.5, 2, 10.5); ctx.fill();
+
+    // ===== القبعة الحمراء =====
+    ctx.fillStyle = C.cap;
+    ctx.beginPath();
+    ctx.moveTo(-9, 0); ctx.quadraticCurveTo(-9, -9, 2, -9);
+    ctx.quadraticCurveTo(10, -9, 11, -2); ctx.lineTo(-9, -2); ctx.closePath(); ctx.fill();
+    // حافة القبعة الأمامية
+    ctx.fillStyle = "#c9382f"; rr(6, -3, 10, 3.5, 2);
+    // شعار القبعة
+    ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(0, -5, 3, 0, 7); ctx.fill();
+    ctx.fillStyle = C.cap; ctx.font = "bold 5px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("S", 0, -4.5);
+
     ctx.restore();
   }
+  function rr(x, y, w, h, r) { pathRR(x, y, w, h, r); ctx.fill(); }
 
   // ============ الحلقة الرئيسية ============
   function loop() {
@@ -575,6 +709,8 @@
   // ============ بدء / إعادة ============
   function startGame() {
     Sound.resume();
+    // محاولة قفل الاتجاه أفقياً (تنجح على التطبيق المثبّت/وضع ملء الشاشة)
+    try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(function () {}); } catch (e) {}
     level = 0; coins = 0; lives = 3;
     buildLevel(0); updateHUD(); state = "playing";
     document.getElementById("start-screen").classList.add("hidden");

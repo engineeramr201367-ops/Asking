@@ -79,6 +79,19 @@
   }
   #hud .box { background: rgba(0,0,0,.25); padding: 4px 12px; border-radius: 8px; }
 
+  /* شاشة "أدر جهازك أفقياً" — تظهر فقط في الوضع الرأسي على الموبايل */
+  #rotate-notice {
+    position: fixed; inset: 0; z-index: 100;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    background: linear-gradient(180deg, #12203f, #223a6b); color: #fff; text-align: center; padding: 30px;
+  }
+  #rotate-notice .phone { font-size: 84px; animation: rothint 1.6s ease-in-out infinite; }
+  #rotate-notice p { font-size: clamp(18px, 5.5vw, 26px); font-weight: bold; margin-top: 18px; }
+  @keyframes rothint { 0%,100% { transform: rotate(0); } 50% { transform: rotate(-90deg); } }
+  @media (orientation: portrait) and (max-width: 900px) {
+    #rotate-notice { display: flex; }
+  }
+
   /* زر كتم الصوت */
   #btn-mute {
     position: fixed; z-index: 25;
@@ -124,6 +137,11 @@
   <h2 id="end-title">أحسنت!</h2>
   <p id="end-msg"></p>
   <button class="play-btn" id="restart-btn">🔁 العب مرة أخرى</button>
+</div>
+
+<div id="rotate-notice">
+  <div class="phone">📱</div>
+  <p>أدِر جهازك أفقياً<br/>Landscape 🔄</p>
 </div>
 
 <script src="game.js"></script>
