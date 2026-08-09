@@ -146,15 +146,24 @@
 
   // ============ حالة اللعبة ============
   let state = "start";
-  let level = 0, coins = 0, lives = 3;
+  let level = 0, coins = 0, lives = 3, score = 0;
+  const LEVEL_TIME = 300;
+  let timeLeft = LEVEL_TIME, timeAcc = 0;
   let solids = [], coinList = [], enemies = [], popCoins = [], powerups = [], fireballs = [];
   let flag = null, worldW = 0, worldH = 0, player = null, camX = 0;
   let playerState = "small"; // small | big | fire (يستمر بين المراحل)
 
-  let bestScore = parseInt(localStorage.getItem("superRunBest") || "0", 10) || 0;
-  (function showBestOnStart() {
+  let bestScore = parseInt(localStorage.getItem("superRunBestScore") || "0", 10) || 0;
+  let progress = parseInt(localStorage.getItem("superRunProgress") || "0", 10) || 0;
+  function addScore(n) { score += n; updateHUD(); }
+  (function showStartInfo() {
     const el = document.getElementById("best-line");
-    if (el && bestScore > 0) el.textContent = "🏆 أفضل نتيجة: " + bestScore + " عملة";
+    if (el && bestScore > 0) el.textContent = "🏆 أعلى نتيجة: " + bestScore;
+    const cb = document.getElementById("continue-btn");
+    if (cb && progress > 0) {
+      document.getElementById("cont-level").textContent = progress + 1;
+      cb.style.display = "";
+    }
   })();
 
   const keys = { left: false, right: false, jump: false };
@@ -206,6 +215,8 @@
     const cfg = CONFIGS[idx];
     solids = []; coinList = []; enemies = []; popCoins = []; powerups = []; fireballs = [];
     worldW = cfg.width * TILE; worldH = 12 * TILE;
+    timeLeft = LEVEL_TIME; timeAcc = 0;
+    if (idx > progress) { progress = idx; localStorage.setItem("superRunProgress", String(progress)); }
 
     // الأرض (صفّان) مع فجوات
     for (let col = 0; col < cfg.width; col++) {
@@ -309,7 +320,7 @@
 
     for (const coin of coinList) {
       if (!coin.got && rectHit(p, { x: coin.x - 9, y: coin.y - 9, w: 18, h: 18 })) {
-        coin.got = true; coins++; updateHUD(); Sound.coin();
+        coin.got = true; coins++; score += 100; updateHUD(); Sound.coin();
       }
     }
     if (flag && p.x + p.w > flag.x - 6) winLevel();
@@ -330,7 +341,7 @@
   // كوين يطلع من الصندوق
   function spawnPopCoin(x, y) {
     popCoins.push({ x: x, y: y - 6, vy: -6.2, life: 34 });
-    coins++; updateHUD(); Sound.coin();
+    coins++; score += 100; updateHUD(); Sound.coin();
   }
   function updatePopCoins() {
     for (const pc of popCoins) { pc.vy += 0.42; pc.y += pc.vy; pc.life--; }
@@ -362,7 +373,7 @@
   }
   function applyPower(kind) {
     if (kind === "mush") {
-      if (player.state === "small") setSize("big"); else { coins++; updateHUD(); }
+      if (player.state === "small") setSize("big"); else { score += 1000; updateHUD(); }
     } else { // زهرة نار
       setSize("fire");
     }
@@ -401,7 +412,7 @@
       for (const s of solids) { if (rectHit(fb, s)) { if (fb.vy > 0) { fb.y = s.y - fb.h; fb.vy = -5.5; } else { fb.y = s.y + s.h; fb.vy = 0.5; } } }
       if (fb.x < 0 || fb.x > worldW || fb.life <= 0) fb.dead = true;
       for (const e of enemies) {
-        if (e.alive && rectHit(fb, e)) { e.alive = false; e.dieTime = 0; e.vy = -6; e.flip = true; coins++; updateHUD(); Sound.stomp(); fb.dead = true; break; }
+        if (e.alive && rectHit(fb, e)) { e.alive = false; e.dieTime = 0; e.vy = -6; e.flip = true; score += 200; updateHUD(); Sound.stomp(); fb.dead = true; break; }
       }
     }
     fireballs = fireballs.filter((fb) => !fb.dead);
@@ -438,11 +449,21 @@
       const p = player;
       if (!p.dead && rectHit(p, e)) {
         const stomped = p.vy > 0 && (p.y + p.h) - e.y < 18;
-        if (stomped) { e.alive = false; e.dieTime = 0; p.vy = JUMP_VELOCITY * 0.6; coins++; updateHUD(); Sound.stomp(); }
+        if (stomped) { e.alive = false; e.dieTime = 0; p.vy = JUMP_VELOCITY * 0.6; score += 200; updateHUD(); Sound.stomp(); }
         else takeDamage();
       }
     }
     enemies = enemies.filter((e) => e.alive || e.dieTime < 30);
+  }
+
+  // ============ المؤقّت ============
+  function updateTimer() {
+    if (player.dead) return;
+    timeAcc++;
+    if (timeAcc >= 24) { // ~0.4s لكل وحدة زمن
+      timeAcc = 0; timeLeft--; updateHUD();
+      if (timeLeft <= 0) { timeLeft = 0; killPlayer(); }
+    }
   }
 
   // ============ الموت والفوز ============
@@ -468,6 +489,7 @@
   }
   function winLevel() {
     if (state !== "playing") return;
+    if (timeLeft > 0) { score += timeLeft * 10; updateHUD(); } // بونص الوقت المتبقّي
     state = "win-anim"; Sound.win();
     setTimeout(() => {
       level++;
@@ -478,16 +500,19 @@
   function endGame(won) {
     state = won ? "win" : "dead";
     let isRecord = false;
-    if (coins > bestScore) { bestScore = coins; localStorage.setItem("superRunBest", String(bestScore)); isRecord = true; }
+    if (score > bestScore) { bestScore = score; localStorage.setItem("superRunBestScore", String(bestScore)); isRecord = true; }
     document.getElementById("hud").classList.add("hidden");
     document.getElementById("controls").classList.add("hidden");
     const es = document.getElementById("end-screen");
     document.getElementById("end-emoji").textContent = won ? "🏆" : "💀";
     document.getElementById("end-title").textContent = won ? "مبروك! أنهيت اللعبة" : "انتهت اللعبة";
     document.getElementById("end-msg").innerHTML =
-      (won ? "أنت بطل حقيقي! " : "حاول مرة أخرى. ") + "جمعت " + coins + " عملة 🪙" +
-      "<br/>" + (isRecord ? "🎉 رقم قياسي جديد!" : "أفضل نتيجة: " + bestScore + " 🪙");
+      "🏅 نتيجتك: <b>" + score + "</b> — جمعت " + coins + " عملة" +
+      "<br/>" + (isRecord ? "🎉 رقم قياسي جديد!" : "أعلى نتيجة: " + bestScore);
     es.classList.remove("hidden");
+    // إظهار زر المتابعة لو فيه تقدّم محفوظ
+    const cb = document.getElementById("continue-btn");
+    if (cb && progress > 0) { document.getElementById("cont-level").textContent = progress + 1; }
   }
 
   // ============ الرسم عالي الدقة ============
@@ -839,7 +864,7 @@
 
   // ============ الحلقة الرئيسية ============
   function loop() {
-    if (state === "playing") { updatePlayer(); updateEnemies(); updatePopCoins(); updatePowerups(); updateFireballs(); }
+    if (state === "playing") { updatePlayer(); updateEnemies(); updatePopCoins(); updatePowerups(); updateFireballs(); updateTimer(); }
     else if (state === "dying") { updateDeath(); updatePopCoins(); }
     else if (state === "win-anim" || state === "dead") { updatePopCoins(); }
     if (player && (state === "playing" || state === "dying" || state === "win-anim" || state === "dead" || state === "win")) draw();
@@ -848,25 +873,29 @@
 
   // ============ HUD ============
   function updateHUD() {
+    document.getElementById("hud-score").textContent = score;
     document.getElementById("hud-coins").textContent = coins;
     document.getElementById("hud-level").textContent = level + 1;
     document.getElementById("hud-lives").textContent = lives;
-    const best = document.getElementById("hud-best");
-    if (best) best.textContent = Math.max(bestScore, coins);
+    const t = document.getElementById("hud-time");
+    if (t) t.textContent = timeLeft;
+    const tb = document.getElementById("time-box");
+    if (tb) tb.classList.toggle("low", timeLeft <= 30);
   }
 
   // ============ بدء / إعادة ============
-  function startGame() {
+  function startGameAt(startLevel) {
     Sound.resume();
     // محاولة قفل الاتجاه أفقياً (تنجح على التطبيق المثبّت/وضع ملء الشاشة)
     try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(function () {}); } catch (e) {}
-    level = 0; coins = 0; lives = 3; playerState = "small";
-    buildLevel(0); updateHUD(); refreshFireBtn(); state = "playing";
+    level = startLevel; coins = 0; lives = 3; score = 0; playerState = "small";
+    buildLevel(level); updateHUD(); refreshFireBtn(); state = "playing";
     document.getElementById("start-screen").classList.add("hidden");
     document.getElementById("end-screen").classList.add("hidden");
     document.getElementById("hud").classList.remove("hidden");
     document.getElementById("controls").classList.remove("hidden");
   }
+  function startGame() { startGameAt(0); }
 
   // ============ التحكم ============
   addEventListener("keydown", (e) => {
@@ -901,6 +930,8 @@
   }
   document.getElementById("start-btn").addEventListener("click", startGame);
   document.getElementById("restart-btn").addEventListener("click", startGame);
+  const contBtn = document.getElementById("continue-btn");
+  if (contBtn) contBtn.addEventListener("click", () => startGameAt(Math.min(progress, CONFIGS.length - 1)));
   const muteBtn = document.getElementById("btn-mute");
   function refreshMuteIcon() { muteBtn.textContent = Sound.isMuted() ? "🔇" : "🔊"; }
   if (muteBtn) { refreshMuteIcon(); muteBtn.addEventListener("click", () => { Sound.toggle(); refreshMuteIcon(); }); }

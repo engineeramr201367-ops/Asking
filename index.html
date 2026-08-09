@@ -68,6 +68,10 @@
     box-shadow: 0 6px 0 #a52f28; cursor: pointer;
   }
   .play-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #a52f28; }
+  #continue-btn { background: #2e8b3d; box-shadow: 0 6px 0 #1c5f28; }
+  #continue-btn:active { box-shadow: 0 2px 0 #1c5f28; }
+  #time-box.low { color: #ffd21a; animation: blinktime 0.6s steps(2) infinite; }
+  @keyframes blinktime { 50% { opacity: 0.45; } }
   .hint { margin-top: 20px; font-size: 14px; opacity: .85; }
   .flag { font-size: 56px; margin-bottom: 10px; }
 
@@ -116,10 +120,11 @@
 </div>
 
 <div id="hud" class="hidden">
+  <div class="box">🏅 <span id="hud-score">0</span></div>
   <div class="box"><span class="coin-ic"></span> <span id="hud-coins">0</span></div>
-  <div class="box">المرحلة <span id="hud-level">1</span></div>
+  <div class="box" id="time-box">⏱️ <span id="hud-time">300</span></div>
+  <div class="box">م<span id="hud-level">1</span></div>
   <div class="box">❤️ <span id="hud-lives">3</span></div>
-  <div class="box">🏆 <span id="hud-best">0</span></div>
 </div>
 
 <div id="btn-mute" class="btn">🔊</div>
@@ -137,7 +142,8 @@
   <p>اجمع العملات 🪙، اقفز فوق الأعداء 👾، ووصّل للعلَم 🚩 في نهاية كل مرحلة!</p>
   <p style="opacity:.8">الجوال: استخدم أزرار ◀ ▶ للحركة و ⤴ للقفز.<br/>الكمبيوتر: الأسهم أو A/D للحركة، ومسافة/سهم لأعلى للقفز.</p>
   <p id="best-line" style="font-weight:bold"></p>
-  <button class="play-btn" id="start-btn">▶ ابدأ اللعب</button>
+  <button class="play-btn" id="continue-btn" style="display:none">▶ متابعة من مرحلة <span id="cont-level">1</span></button>
+  <button class="play-btn" id="start-btn">▶ ابدأ من البداية</button>
   <div class="hint">اضغط على "تثبيت" في متصفحك لإضافتها كتطبيق على شاشتك</div>
 </div>
 
