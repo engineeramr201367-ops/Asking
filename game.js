@@ -384,6 +384,7 @@
     currentWarp = null;
     if (p.onGround) {
       for (const wp of warpPipes) {
+        if (wp.used) continue; // أنبوب دخول مُستهلَك (منع تكرار جمع الكوينز)
         if (p.x + p.w > wp.x + 4 && p.x < wp.x + wp.w - 4 && Math.abs((p.y + p.h) - wp.y) < 6) { currentWarp = wp; break; }
       }
     }
@@ -512,6 +513,7 @@
   // ============ الأنابيب والغرفة السرية ============
   function enterPipe(pipe) {
     if (inSecret) return;
+    pipe.used = true; // مرة واحدة فقط
     Sound.pipe(); burst(pipe.x + pipe.w / 2, pipe.y + 4, PC_POWER, 12);
     secretReturn = { solids, coinList, enemies, popCoins, powerups, fireballs, particles, flag, worldW, worldH, warpPipes, boss, entry: { x: pipe.x, w: pipe.w, y: pipe.y } };
     buildSecretRoom();
@@ -606,7 +608,7 @@
 
   // ============ المؤقّت ============
   function updateTimer() {
-    if (player.dead) return;
+    if (player.dead || inSecret) return; // المؤقّت يتجمّد داخل الغرفة السرية
     timeAcc++;
     if (timeAcc >= 24) { // ~0.4s لكل وحدة زمن
       timeAcc = 0; timeLeft--; updateHUD();
