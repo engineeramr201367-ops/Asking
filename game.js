@@ -21,6 +21,7 @@
   const TILE = 30;
   const GROUND_ROW = 10; // صفوف الأرض: 10 و 11
   const START_ROW = 9;   // صف بداية اللاعب والأعداء (فوق الأرض)
+  const PLAYER_SIZES = { small: { w: 22, h: 28 }, big: { w: 28, h: 40 }, fire: { w: 28, h: 40 } };
 
   // ألوان
   const C = {
@@ -146,8 +147,9 @@
   // ============ حالة اللعبة ============
   let state = "start";
   let level = 0, coins = 0, lives = 3;
-  let solids = [], coinList = [], enemies = [], popCoins = [];
+  let solids = [], coinList = [], enemies = [], popCoins = [], powerups = [], fireballs = [];
   let flag = null, worldW = 0, worldH = 0, player = null, camX = 0;
+  let playerState = "small"; // small | big | fire (يستمر بين المراحل)
 
   let bestScore = parseInt(localStorage.getItem("superRunBest") || "0", 10) || 0;
   (function showBestOnStart() {
@@ -188,6 +190,10 @@
       stomp() { tone(200, 0.12, "sawtooth", 0.18, 0); tone(120, 0.14, "sawtooth", 0.14, 0.05); },
       die() { tone(400, 0.15, "square", 0.16, 0); tone(300, 0.15, "square", 0.15, 0.12); tone(150, 0.3, "square", 0.15, 0.24); },
       win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.16, "square", 0.16, i * 0.12)); },
+      power() { [392, 523, 659].forEach((f, i) => tone(f, 0.1, "square", 0.13, i * 0.06)); }, // ظهور القوة
+      grow() { [523, 784, 1047, 1319].forEach((f, i) => tone(f, 0.09, "square", 0.15, i * 0.05)); }, // التكبير
+      hurt() { tone(300, 0.12, "sawtooth", 0.16, 0); tone(200, 0.14, "sawtooth", 0.14, 0.08); }, // الأذى
+      fire() { tone(880, 0.06, "square", 0.12, 0); tone(560, 0.08, "square", 0.1, 0.04); }, // رمي النار
     };
   })();
 
@@ -198,7 +204,7 @@
   }
   function buildLevel(idx) {
     const cfg = CONFIGS[idx];
-    solids = []; coinList = []; enemies = []; popCoins = [];
+    solids = []; coinList = []; enemies = []; popCoins = []; powerups = []; fireballs = [];
     worldW = cfg.width * TILE; worldH = 12 * TILE;
 
     // الأرض (صفّان) مع فجوات
@@ -208,10 +214,14 @@
       solids.push({ x: col * TILE, y: (GROUND_ROW + 1) * TILE, w: TILE, h: TILE, type: "ground" });
     }
     // المنصّات — نثبّت ارتفاعها في الصفوف 6 أو 7 فقط لتظل في متناول القفز من الأرض
+    // بعض صناديق ؟ نحوّلها لصناديق قوى (الأول والثالث) لتعطي فطر/زهرة نار
+    let blockOrder = 0;
     for (const p of cfg.platforms) {
       const row = p.row < 6 ? 6 : (p.row > 7 ? 7 : p.row);
+      let ptype = p.type;
+      if (p.type === "block") { if (blockOrder === 0 || blockOrder === 2) ptype = "power"; blockOrder++; }
       for (let i = 0; i < p.len; i++) {
-        const s = { x: (p.col + i) * TILE, y: row * TILE, w: TILE, h: TILE, type: p.type };
+        const s = { x: (p.col + i) * TILE, y: row * TILE, w: TILE, h: TILE, type: ptype };
         solids.push(s);
         // كوين يستقرّ فوق الطوب فقط (مش فوق صناديق ؟). نطح الطوبة من تحت يلتقطه.
         if (p.type === "brick") addCoinXY(s.x + TILE / 2, s.y - 15);
@@ -230,11 +240,13 @@
       const kind = typeof item === "object" && item.type ? item.type : ENEMY_KINDS[col % ENEMY_KINDS.length];
       enemies.push(makeEnemy(col * TILE, START_ROW * TILE, kind));
     }
-    // اللاعب
-    player = { x: cfg.start * TILE, y: START_ROW * TILE - 8, w: 24, h: 32, vx: 0, vy: 0, onGround: false, face: 1, dead: false, animTime: 0 };
+    // اللاعب (بحجم يوافق حالته الحالية)
+    const sz = PLAYER_SIZES[playerState];
+    player = { x: cfg.start * TILE, y: GROUND_ROW * TILE - sz.h, w: sz.w, h: sz.h, vx: 0, vy: 0, onGround: false, face: 1, dead: false, animTime: 0, state: playerState, invuln: 0 };
     // العلَم في النهاية
     flag = { x: (cfg.width - 2) * TILE + TILE / 2, y: GROUND_ROW * TILE };
     camX = 0;
+    refreshFireBtn();
   }
   function addCoin(col, row) { addCoinXY(col * TILE + TILE / 2, row * TILE + TILE / 2); }
   function addCoinXY(x, y) { coinList.push({ x: x, y: y, got: false, phase: x * 0.02 }); }
@@ -258,6 +270,7 @@
   // ============ تحديث اللاعب ============
   function updatePlayer() {
     const p = player;
+    if (p.invuln > 0) p.invuln--;
     if (keys.left) { p.vx = -MOVE_SPEED; p.face = -1; }
     else if (keys.right) { p.vx = MOVE_SPEED; p.face = 1; }
     else p.vx = 0;
@@ -285,6 +298,7 @@
         else if (p.vy < 0) {
           p.y = s.y + s.h; p.vy = 0;
           if (s.type === "block") { s.type = "used"; s.bump = 8; spawnPopCoin(s.x + s.w / 2, s.y); }
+          else if (s.type === "power") { s.type = "used"; s.bump = 8; spawnPowerup(s.x + s.w / 2, s.y); }
           else if (s.type === "brick") { s.bump = 6; if (collectCoinOn(s)) s.type = "used"; }
         }
       }
@@ -323,6 +337,76 @@
     popCoins = popCoins.filter((pc) => pc.life > 0);
   }
 
+  // ============ القوى الخاصة (فطر / زهرة نار) ============
+  function spawnPowerup(x, topY) {
+    // فطر لو اللاعب صغير، وزهرة نار لو كبير/نار بالفعل
+    const kind = player.state === "small" ? "mush" : "fire";
+    powerups.push({ x: x - 13, y: topY - 2, w: 26, h: 26, vx: 1.3, vy: 0, kind: kind, emerging: TILE, t: 0 });
+    Sound.power();
+  }
+  function updatePowerups() {
+    for (const pu of powerups) {
+      pu.t++;
+      if (pu.emerging > 0) { pu.y -= 1; pu.emerging--; continue; } // يطلع من الصندوق
+      if (pu.kind === "mush") {
+        pu.vy += GRAVITY; if (pu.vy > MAX_FALL) pu.vy = MAX_FALL;
+        pu.x += pu.vx;
+        for (const s of solids) { if (rectHit(pu, s)) { if (pu.vx > 0) pu.x = s.x - pu.w; else pu.x = s.x + s.w; pu.vx = -pu.vx; } }
+        pu.y += pu.vy;
+        for (const s of solids) { if (rectHit(pu, s)) { if (pu.vy > 0) { pu.y = s.y - pu.h; pu.vy = 0; } else { pu.y = s.y + s.h; pu.vy = 0; } } }
+        if (pu.y > worldH + 60) pu.dead = true;
+      }
+      if (!player.dead && rectHit(player, pu)) { applyPower(pu.kind); pu.dead = true; }
+    }
+    powerups = powerups.filter((pu) => !pu.dead);
+  }
+  function applyPower(kind) {
+    if (kind === "mush") {
+      if (player.state === "small") setSize("big"); else { coins++; updateHUD(); }
+    } else { // زهرة نار
+      setSize("fire");
+    }
+    player.invuln = Math.max(player.invuln, 40);
+    Sound.grow();
+  }
+  function setSize(newState) {
+    const feet = player.y + player.h;
+    player.state = newState; playerState = newState;
+    const sz = PLAYER_SIZES[newState];
+    player.w = sz.w; player.h = sz.h; player.y = feet - player.h;
+    refreshFireBtn();
+  }
+  function takeDamage() {
+    if (player.dead || player.invuln > 0) return;
+    if (player.state === "fire") { setSize("big"); player.invuln = 100; Sound.hurt(); }
+    else if (player.state === "big") { setSize("small"); player.invuln = 100; Sound.hurt(); }
+    else killPlayer();
+  }
+
+  // ============ كرات النار ============
+  function throwFire() {
+    if (player.dead || player.state !== "fire") return;
+    if (fireballs.length >= 2) return;
+    const dir = player.face;
+    fireballs.push({ x: player.x + (dir > 0 ? player.w - 4 : -8), y: player.y + player.h * 0.4, vx: dir * 5.4, vy: 2, w: 12, h: 12, life: 130, t: 0 });
+    Sound.fire();
+  }
+  function updateFireballs() {
+    for (const fb of fireballs) {
+      fb.t++; fb.life--;
+      fb.vy += 0.42; if (fb.vy > 10) fb.vy = 10;
+      fb.x += fb.vx;
+      for (const s of solids) { if (rectHit(fb, s)) { fb.dead = true; break; } }
+      fb.y += fb.vy;
+      for (const s of solids) { if (rectHit(fb, s)) { if (fb.vy > 0) { fb.y = s.y - fb.h; fb.vy = -5.5; } else { fb.y = s.y + s.h; fb.vy = 0.5; } } }
+      if (fb.x < 0 || fb.x > worldW || fb.life <= 0) fb.dead = true;
+      for (const e of enemies) {
+        if (e.alive && rectHit(fb, e)) { e.alive = false; e.dieTime = 0; e.vy = -6; e.flip = true; coins++; updateHUD(); Sound.stomp(); fb.dead = true; break; }
+      }
+    }
+    fireballs = fireballs.filter((fb) => !fb.dead);
+  }
+
   // ============ تحديث الأعداء ============
   function updateEnemies() {
     for (const e of enemies) {
@@ -355,7 +439,7 @@
       if (!p.dead && rectHit(p, e)) {
         const stomped = p.vy > 0 && (p.y + p.h) - e.y < 18;
         if (stomped) { e.alive = false; e.dieTime = 0; p.vy = JUMP_VELOCITY * 0.6; coins++; updateHUD(); Sound.stomp(); }
-        else killPlayer();
+        else takeDamage();
       }
     }
     enemies = enemies.filter((e) => e.alive || e.dieTime < 30);
@@ -366,6 +450,7 @@
     if (player.dead) return;
     player.dead = true; player.onGround = false;
     player.vy = -10; player.deathSpin = 0; player.deathTime = 0; // نطّة كوميدية
+    playerState = "small"; // الرجوع صغيراً بعد الموت
     lives--; updateHUD(); Sound.die();
     state = "dying";
   }
@@ -422,8 +507,10 @@
     drawSolids();
     drawCoins();
     drawPopCoins();
+    drawPowerups();
     drawFlag();
     drawEnemies();
+    drawFireballs();
     drawPlayer();
     ctx.restore();
   }
@@ -487,7 +574,7 @@
         ctx.strokeRect(s.x + 2, s.y + by + 2, s.w - 4, s.h / 2 - 2);
         ctx.strokeRect(s.x + 2, s.y + by + s.h / 2, s.w - 4, s.h / 2 - 3);
         ctx.strokeRect(s.x + s.w / 2 - 1, s.y + by + 2, 1, s.h - 5);
-      } else if (s.type === "block") {
+      } else if (s.type === "block" || s.type === "power") {
         const g = ctx.createLinearGradient(0, s.y + by, 0, s.y + by + s.h);
         g.addColorStop(0, "#ffcf5a"); g.addColorStop(1, "#e59a1f");
         rrectGrad(s.x, s.y + by, s.w, s.h, 5, g);
@@ -543,6 +630,51 @@
       ctx.globalAlpha = Math.min(1, pc.life / 14);
       drawCoin(pc.x, pc.y, spin);
       ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawPowerups() {
+    for (const pu of powerups) {
+      if (pu.x + pu.w < camX || pu.x > camX + VW) continue;
+      const cx = pu.x + pu.w / 2, cy = pu.y + pu.h / 2;
+      if (pu.kind === "mush") {
+        // ساق
+        ctx.fillStyle = "#ffe8c0"; rrect(cx - 8, cy, 16, pu.h / 2, 3, "#ffe8c0");
+        ctx.fillStyle = "#000"; ctx.fillRect(cx - 4, cy + 4, 2, 4); ctx.fillRect(cx + 2, cy + 4, 2, 4);
+        // قبعة حمراء
+        const g = ctx.createLinearGradient(0, pu.y, 0, cy);
+        g.addColorStop(0, "#ff5a4d"); g.addColorStop(1, "#d8342a");
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, pu.w / 2, Math.PI, 0); ctx.fill();
+        ctx.fillRect(cx - pu.w / 2, cy - 1, pu.w, 3);
+        // بقع بيضاء
+        ctx.fillStyle = "#fff";
+        ctx.beginPath(); ctx.arc(cx - 6, cy - 4, 3.2, 0, 7); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx + 6, cy - 4, 3.2, 0, 7); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx, cy - 9, 3.2, 0, 7); ctx.fill();
+      } else {
+        // زهرة نار: بتلات برتقالي/أحمر تدور + قلب أصفر + ساق خضراء
+        ctx.fillStyle = "#2f9e3f"; ctx.fillRect(cx - 2, cy + 3, 4, pu.h / 2 - 3);
+        ctx.save(); ctx.translate(cx, cy - 2); ctx.rotate(pu.t * 0.06);
+        for (let i = 0; i < 6; i++) {
+          ctx.rotate(Math.PI / 3);
+          ctx.fillStyle = i % 2 ? "#ff7a1a" : "#ff3b30";
+          ctx.beginPath(); ctx.ellipse(0, -8, 4, 7, 0, 0, 7); ctx.fill();
+        }
+        ctx.fillStyle = "#ffd21a"; ctx.beginPath(); ctx.arc(0, 0, 5, 0, 7); ctx.fill();
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(-1.5, -1.5, 1.6, 0, 7); ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+  function drawFireballs() {
+    for (const fb of fireballs) {
+      const cx = fb.x + fb.w / 2, cy = fb.y + fb.h / 2;
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(fb.t * 0.4);
+      const g = ctx.createRadialGradient(0, 0, 1, 0, 0, fb.w / 2 + 2);
+      g.addColorStop(0, "#fff2a0"); g.addColorStop(0.5, "#ff9b1a"); g.addColorStop(1, "#e53211");
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, fb.w / 2, 0, 7); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.beginPath(); ctx.arc(-2, -2, 2, 0, 7); ctx.fill();
+      ctx.restore();
     }
   }
 
@@ -634,10 +766,13 @@
     ctx.save();
     ctx.translate(p.x + p.w / 2, p.y);
     if (p.dead) { ctx.translate(0, p.h / 2); ctx.rotate(p.deathSpin || 0); ctx.translate(0, -p.h / 2); }
-    if (p.face < 0) ctx.scale(-1, 1);
+    if (p.invuln > 0 && !p.dead && Math.floor(p.invuln / 5) % 2 === 0) ctx.globalAlpha = 0.4;
+    const s = p.h / 32;                       // تكبير الرسم حسب حالة اللاعب
+    ctx.scale(p.face < 0 ? -s : s, s);        // مع قلب الاتجاه
     const walking = p.onGround && Math.abs(p.vx) > 0.1;
     const step = Math.floor(p.animTime / 5) % 2;
     const jumping = !p.onGround;
+    const overallColor = p.state === "fire" ? "#f2f2f2" : C.overall; // زهرة النار: أفرول أبيض
 
     // ===== الأحذية =====
     ctx.fillStyle = C.shoe;
@@ -647,12 +782,12 @@
       rr(-11 - a, 28, 9, 4, 2); rr(3 + b, 28, 9, 4, 2);
     } else { rr(-11, 28, 9, 4, 2); rr(3, 28, 9, 4, 2); }
 
-    // ===== أفرول أزرق (سروال) =====
-    ctx.fillStyle = C.overall; rr(-10, 17, 20, 13, 3);
+    // ===== أفرول (سروال) =====
+    ctx.fillStyle = overallColor; rr(-10, 17, 20, 13, 3);
     // أرجل الأفرول
     rr(-10, 24, 8, 8, 2); rr(2, 24, 8, 8, 2);
     // حمّالات الأفرول لأعلى
-    ctx.fillStyle = C.overall; ctx.fillRect(-8, 9, 4, 10); ctx.fillRect(4, 9, 4, 10);
+    ctx.fillStyle = overallColor; ctx.fillRect(-8, 9, 4, 10); ctx.fillRect(4, 9, 4, 10);
     // أزرار صفراء
     ctx.fillStyle = "#ffd21a"; ctx.beginPath(); ctx.arc(-6, 18, 2, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.arc(6, 18, 2, 0, 7); ctx.fill();
@@ -704,7 +839,7 @@
 
   // ============ الحلقة الرئيسية ============
   function loop() {
-    if (state === "playing") { updatePlayer(); updateEnemies(); updatePopCoins(); }
+    if (state === "playing") { updatePlayer(); updateEnemies(); updatePopCoins(); updatePowerups(); updateFireballs(); }
     else if (state === "dying") { updateDeath(); updatePopCoins(); }
     else if (state === "win-anim" || state === "dead") { updatePopCoins(); }
     if (player && (state === "playing" || state === "dying" || state === "win-anim" || state === "dead" || state === "win")) draw();
@@ -725,8 +860,8 @@
     Sound.resume();
     // محاولة قفل الاتجاه أفقياً (تنجح على التطبيق المثبّت/وضع ملء الشاشة)
     try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(function () {}); } catch (e) {}
-    level = 0; coins = 0; lives = 3;
-    buildLevel(0); updateHUD(); state = "playing";
+    level = 0; coins = 0; lives = 3; playerState = "small";
+    buildLevel(0); updateHUD(); refreshFireBtn(); state = "playing";
     document.getElementById("start-screen").classList.add("hidden");
     document.getElementById("end-screen").classList.add("hidden");
     document.getElementById("hud").classList.remove("hidden");
@@ -738,6 +873,7 @@
     if (e.code === "ArrowLeft" || e.code === "KeyA") keys.left = true;
     if (e.code === "ArrowRight" || e.code === "KeyD") keys.right = true;
     if (e.code === "ArrowUp" || e.code === "Space" || e.code === "KeyW") { keys.jump = true; e.preventDefault(); }
+    if ((e.code === "KeyF" || e.code === "KeyX" || e.code === "ShiftLeft") && !e.repeat) throwFire();
   });
   addEventListener("keyup", (e) => {
     if (e.code === "ArrowLeft" || e.code === "KeyA") keys.left = false;
@@ -756,6 +892,13 @@
   bindTouch("btn-left", () => (keys.left = true), () => (keys.left = false));
   bindTouch("btn-right", () => (keys.right = true), () => (keys.right = false));
   bindTouch("btn-jump", () => (keys.jump = true), () => (keys.jump = false));
+  bindTouch("btn-fire", () => throwFire(), () => {});
+
+  // زر النار يظهر مفعّلاً فقط في حالة زهرة النار
+  function refreshFireBtn() {
+    const b = document.getElementById("btn-fire");
+    if (b) b.style.opacity = (player && player.state === "fire") ? "1" : "0.35";
+  }
   document.getElementById("start-btn").addEventListener("click", startGame);
   document.getElementById("restart-btn").addEventListener("click", startGame);
   const muteBtn = document.getElementById("btn-mute");
