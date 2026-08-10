@@ -25,10 +25,8 @@
   }
   canvas {
     display: block;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
     max-width: 100%; max-height: 100%;
-    background: #5c94fc;
+    background: #6ba4ff;
     touch-action: none;
   }
 
@@ -50,6 +48,8 @@
   #btn-left  { left: 20px; }
   #btn-right { left: 108px; }
   #btn-jump  { right: 24px; width: 88px; height: 88px; background: rgba(255,90,90,0.35); border-color: rgba(255,255,255,0.7); }
+  #btn-fire  { right: 122px; width: 66px; height: 66px; background: rgba(255,140,40,0.35); font-size: 28px; opacity: 0.35; }
+  #btn-down  { left: 64px; bottom: max(104px, calc(env(safe-area-inset-bottom) + 104px)); width: 64px; height: 64px; background: rgba(70,200,90,0.4); display: none; }
 
   /* ===== الشاشات ===== */
   .screen {
@@ -69,6 +69,10 @@
     box-shadow: 0 6px 0 #a52f28; cursor: pointer;
   }
   .play-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #a52f28; }
+  #continue-btn { background: #2e8b3d; box-shadow: 0 6px 0 #1c5f28; }
+  #continue-btn:active { box-shadow: 0 2px 0 #1c5f28; }
+  #time-box.low { color: #ffd21a; animation: blinktime 0.6s steps(2) infinite; }
+  @keyframes blinktime { 50% { opacity: 0.45; } }
   .hint { margin-top: 20px; font-size: 14px; opacity: .85; }
   .flag { font-size: 56px; margin-bottom: 10px; }
 
@@ -80,22 +84,57 @@
     text-shadow: 2px 2px 0 rgba(0,0,0,.35);
   }
   #hud .box { background: rgba(0,0,0,.25); padding: 4px 12px; border-radius: 8px; }
+  /* أيقونة الكوين الدهبية في العداد */
+  .coin-ic {
+    display: inline-block; width: 15px; height: 15px; border-radius: 50%;
+    background: radial-gradient(circle at 34% 30%, #fff6b0 0%, #ffd21a 55%, #d99a00 100%);
+    border: 1px solid #b9820a; vertical-align: -2px;
+    box-shadow: inset 0 1px 2px rgba(255,255,255,.7), inset 0 -1px 2px rgba(150,100,0,.5);
+  }
+  .coin-ic::after { content: ""; display: block; width: 3px; height: 7px; margin: 4px auto; background: rgba(180,120,0,.55); border-radius: 2px; }
+
+  /* شاشة "أدر جهازك أفقياً" — تظهر فقط في الوضع الرأسي على الموبايل */
+  #rotate-notice {
+    position: fixed; inset: 0; z-index: 100;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    background: linear-gradient(180deg, #12203f, #223a6b); color: #fff; text-align: center; padding: 30px;
+  }
+  #rotate-notice .phone { font-size: 84px; animation: rothint 1.6s ease-in-out infinite; }
+  #rotate-notice p { font-size: clamp(18px, 5.5vw, 26px); font-weight: bold; margin-top: 18px; }
+  @keyframes rothint { 0%,100% { transform: rotate(0); } 50% { transform: rotate(-90deg); } }
+  @media (orientation: portrait) and (max-width: 900px) {
+    #rotate-notice { display: flex; }
+  }
+
+  /* زر كتم الصوت */
+  #btn-mute {
+    position: fixed; z-index: 25;
+    top: max(10px, env(safe-area-inset-top)); right: 12px;
+    width: 44px; height: 44px; font-size: 22px;
+    bottom: auto; pointer-events: auto;
+  }
 </style>
 </head>
 <body>
 <div id="game-wrap">
-  <canvas id="game" width="480" height="270"></canvas>
+  <canvas id="game" width="480" height="360"></canvas>
 </div>
 
 <div id="hud" class="hidden">
-  <div class="box">🪙 <span id="hud-coins">0</span></div>
-  <div class="box">المرحلة <span id="hud-level">1</span></div>
+  <div class="box">🏅 <span id="hud-score">0</span></div>
+  <div class="box"><span class="coin-ic"></span> <span id="hud-coins">0</span></div>
+  <div class="box" id="time-box">⏱️ <span id="hud-time">300</span></div>
+  <div class="box">م<span id="hud-level">1</span></div>
   <div class="box">❤️ <span id="hud-lives">3</span></div>
 </div>
+
+<div id="btn-mute" class="btn">🔊</div>
 
 <div id="controls" class="hidden">
   <div id="btn-left"  class="btn">◀</div>
   <div id="btn-right" class="btn">▶</div>
+  <div id="btn-fire"  class="btn">🔥</div>
+  <div id="btn-down"  class="btn">⤵️</div>
   <div id="btn-jump"  class="btn">⤴</div>
 </div>
 
@@ -104,7 +143,9 @@
   <h1>سوبر جـري</h1>
   <p>اجمع العملات 🪙، اقفز فوق الأعداء 👾، ووصّل للعلَم 🚩 في نهاية كل مرحلة!</p>
   <p style="opacity:.8">الجوال: استخدم أزرار ◀ ▶ للحركة و ⤴ للقفز.<br/>الكمبيوتر: الأسهم أو A/D للحركة، ومسافة/سهم لأعلى للقفز.</p>
-  <button class="play-btn" id="start-btn">▶ ابدأ اللعب</button>
+  <p id="best-line" style="font-weight:bold"></p>
+  <button class="play-btn" id="continue-btn" style="display:none">▶ متابعة من مرحلة <span id="cont-level">1</span></button>
+  <button class="play-btn" id="start-btn">▶ ابدأ من البداية</button>
   <div class="hint">اضغط على "تثبيت" في متصفحك لإضافتها كتطبيق على شاشتك</div>
 </div>
 
@@ -116,6 +157,12 @@
   <button class="play-btn" id="restart-btn">🔁 العب مرة أخرى</button>
 </div>
 
+<div id="rotate-notice">
+  <div class="phone">📱</div>
+  <p>أدِر جهازك أفقياً<br/>Landscape 🔄</p>
+</div>
+
+<script src="mobile-ads.js"></script>
 <script src="game.js"></script>
 </body>
 </html>
