@@ -196,6 +196,24 @@
       osc.connect(g); g.connect(a.destination);
       osc.start(t0); osc.stop(t0 + dur + 0.02);
     }
+    // ضجيج أبيض قصير (لصوت التحطّم)
+    function noise(dur, vol, cutoff) {
+      if (muted) return;
+      const a = ctx2(); if (!a || !a.createBuffer) return;
+      try {
+        const n = Math.floor((a.sampleRate || 44100) * dur);
+        const buf = a.createBuffer(1, n, a.sampleRate || 44100);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / n);
+        const src = a.createBufferSource(); src.buffer = buf;
+        const g = a.createGain();
+        g.gain.setValueAtTime(vol || 0.15, a.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+        if (a.createBiquadFilter && cutoff) { const f = a.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = cutoff; src.connect(f); f.connect(g); }
+        else src.connect(g);
+        g.connect(a.destination); src.start();
+      } catch (e) {}
+    }
     // نغمة عند وقت مطلق (للموسيقى)
     function blip(freq, tAbs, dur, type, vol) {
       const a = ac; if (!a || muted) return;
@@ -238,7 +256,11 @@
       hurt() { tone(300, 0.12, "sawtooth", 0.16, 0); tone(200, 0.14, "sawtooth", 0.14, 0.08); }, // الأذى
       fire() { tone(880, 0.06, "square", 0.12, 0); tone(560, 0.08, "square", 0.1, 0.04); }, // رمي النار
       pipe() { tone(300, 0.12, "sine", 0.16, 0); tone(180, 0.16, "sine", 0.14, 0.1); tone(110, 0.2, "sine", 0.12, 0.22); }, // دخول أنبوب
-      brick() { tone(240, 0.05, "square", 0.14, 0); tone(150, 0.07, "square", 0.12, 0.03); tone(90, 0.1, "sawtooth", 0.1, 0.07); }, // كسر طوبة
+      brick() { // كسر طوبة — طقطقة/تحطّم أوضح
+        noise(0.14, 0.16, 1200);
+        tone(300, 0.06, "square", 0.16, 0); tone(180, 0.08, "square", 0.14, 0.03);
+        tone(110, 0.12, "sawtooth", 0.13, 0.06); tone(70, 0.16, "sawtooth", 0.1, 0.1);
+      },
     };
   })();
 
@@ -355,20 +377,25 @@
 
     p.onGround = false;
     p.y += p.vy;
+    let bumpedUp = false;
     for (const s of solids) {
       if (rectHit(p, s)) {
         if (p.vy > 0) { p.y = s.y - p.h; p.vy = 0; p.onGround = true; }
-        else if (p.vy < 0) {
-          p.y = s.y + s.h; p.vy = 0;
-          if (s.type === "block") { s.type = "used"; s.bump = 8; spawnPopCoin(s.x + s.w / 2, s.y); }
-          else if (s.type === "power") { s.type = "used"; s.bump = 8; spawnPowerup(s.x + s.w / 2, s.y); }
-          else if (s.type === "brick") {
-            s.bump = 6;
-            collectCoinOn(s);                 // ياخد الكوين اللي فوقها (لو موجود)
-            if (p.state !== "small") breakBrick(s); // الطوبة تتكسر فقط لو اللاعب كبير/نار
-          }
-        }
+        else if (p.vy < 0) { p.y = s.y + s.h; p.vy = 0; bumpedUp = true; }
       }
+    }
+    // عند النطح لأعلى: نفعّل المجسّم اللي فوق مركز اللاعب مباشرة
+    // (يحل مشكلة الصندوق الموجود بين الطوب — يتفعّل مهما كان ترتيب الفحص)
+    if (bumpedUp) {
+      const cxp = p.x + p.w / 2;
+      let target = null, best = 99;
+      for (const s of solids) {
+        if (s.type === "ground" || s.type === "pipe" || s.type === "used") continue;
+        if (Math.abs((s.y + s.h) - p.y) > 2) continue;
+        const d = Math.abs((s.x + s.w / 2) - cxp);
+        if (cxp >= s.x - 2 && cxp < s.x + s.w + 2 && d < best) { best = d; target = s; }
+      }
+      if (target) hitFromBelow(target);
     }
     if (solidsDirty) { solids = solids.filter((s) => !s.broken); solidsDirty = false; }
 
@@ -421,7 +448,13 @@
   const PC_FIRE = ["#ff9b1a", "#ffd21a", "#e53211"];
   const PC_POWER = ["#ff5a4d", "#2ecc40", "#ffd21a", "#3aa0ff"];
   const PC_BRICK = ["#c0492f", "#e07a5a", "#8f3520"];
-  function breakBrick(s) { s.broken = true; solidsDirty = true; burst(s.x + 15, s.y + 12, PC_BRICK, 12); Sound.brick(); }
+  function breakBrick(s) { s.broken = true; solidsDirty = true; burst(s.x + 15, s.y + 12, PC_BRICK, 14); Sound.brick(); }
+  // تفعيل صندوق/طوبة عند النطح من أسفل
+  function hitFromBelow(s) {
+    if (s.type === "block") { s.type = "used"; s.bump = 8; spawnPopCoin(s.x + s.w / 2, s.y); }
+    else if (s.type === "power") { s.type = "used"; s.bump = 8; spawnPowerup(s.x + s.w / 2, s.y); }
+    else if (s.type === "brick") { s.bump = 6; collectCoinOn(s); if (player.state !== "small") breakBrick(s); }
+  }
   function burst(x, y, colors, count) {
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2, sp = 1 + Math.random() * 2.6;
