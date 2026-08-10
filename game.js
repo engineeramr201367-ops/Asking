@@ -706,6 +706,22 @@
 
   // ============ الرسم عالي الدقة ============
   let scaleX = 1, scaleY = 1;
+  // تدرّجات لونية تُنشأ مرة واحدة وتُعاد للاستخدام (توفير كبير في الأداء)
+  let G = null;
+  function grads() {
+    if (G) return G;
+    const lin = (x0, y0, x1, y1, stops) => { const g = ctx.createLinearGradient(x0, y0, x1, y1); for (const s of stops) g.addColorStop(s[0], s[1]); return g; };
+    const rad = (x0, y0, r0, x1, y1, r1, stops) => { const g = ctx.createRadialGradient(x0, y0, r0, x1, y1, r1); for (const s of stops) g.addColorStop(s[0], s[1]); return g; };
+    G = {
+      sky: lin(0, 0, 0, VH, [[0, "#6ba4ff"], [0.6, "#8fc0ff"], [1, "#cfe8ff"]]),
+      ground: lin(0, 0, 0, TILE, [[0, "#b5651d"], [1, "#8a4a12"]]),
+      block: lin(0, 0, 0, TILE, [[0, "#ffcf5a"], [1, "#e59a1f"]]),
+      used: lin(0, 0, 0, TILE, [[0, "#9a6a2a"], [1, "#6f4a17"]]),
+      pipe: lin(0, 0, TILE, 0, [[0, "#219a2e"], [0.4, "#7dffa0"], [0.6, "#4bd75e"], [1, "#177a24"]]),
+      coin: rad(-3, -3, 1, 0, 0, 10, [[0, C.coinLight], [0.6, C.coin], [1, C.coinDark]]),
+    };
+    return G;
+  }
   function draw() {
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
     drawSky();
@@ -734,11 +750,7 @@
   }
 
   function drawSky() {
-    const g = ctx.createLinearGradient(0, 0, 0, VH);
-    g.addColorStop(0, "#6ba4ff");
-    g.addColorStop(0.6, "#8fc0ff");
-    g.addColorStop(1, "#cfe8ff");
-    ctx.fillStyle = g;
+    ctx.fillStyle = grads().sky;
     ctx.fillRect(0, 0, VW, VH);
     // غيوم
     ctx.fillStyle = "rgba(255,255,255,0.92)";
@@ -771,21 +783,18 @@
   }
 
   function drawSolids() {
+    const g = grads();
     for (const s of solids) {
       if (s.x + s.w < camX - 2 || s.x > camX + VW + 2) continue;
       const by = s.bump ? -s.bump : 0;
       if (s.bump) { s.bump -= 1; if (s.bump < 0) s.bump = 0; }
 
       if (s.type === "ground") {
-        const g = ctx.createLinearGradient(0, s.y, 0, s.y + s.h);
-        g.addColorStop(0, "#b5651d"); g.addColorStop(1, "#8a4a12");
-        ctx.fillStyle = g; ctx.fillRect(s.x, s.y, s.w, s.h);
-        if (s.y === GROUND_ROW * TILE) { // العشب على السطح
-          ctx.fillStyle = "#5fbf3a"; ctx.fillRect(s.x, s.y, s.w, 8);
-          ctx.fillStyle = "#4aa32c"; ctx.fillRect(s.x, s.y + 8, s.w, 3);
-        }
-        ctx.fillStyle = "rgba(0,0,0,0.10)";
-        ctx.fillRect(s.x + 5, s.y + 15, 4, 4); ctx.fillRect(s.x + 18, s.y + 20, 4, 4);
+        ctx.save(); ctx.translate(s.x, s.y);
+        ctx.fillStyle = g.ground; ctx.fillRect(0, 0, s.w, s.h);
+        if (s.y === GROUND_ROW * TILE) { ctx.fillStyle = "#5fbf3a"; ctx.fillRect(0, 0, s.w, 8); ctx.fillStyle = "#4aa32c"; ctx.fillRect(0, 8, s.w, 3); }
+        ctx.fillStyle = "rgba(0,0,0,0.10)"; ctx.fillRect(5, 15, 4, 4); ctx.fillRect(18, 20, 4, 4);
+        ctx.restore();
       } else if (s.type === "brick") {
         rrect(s.x, s.y + by, s.w, s.h, 4, "#c0492f");
         ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1.5;
@@ -793,29 +802,28 @@
         ctx.strokeRect(s.x + 2, s.y + by + s.h / 2, s.w - 4, s.h / 2 - 3);
         ctx.strokeRect(s.x + s.w / 2 - 1, s.y + by + 2, 1, s.h - 5);
       } else if (s.type === "block" || s.type === "power") {
-        const g = ctx.createLinearGradient(0, s.y + by, 0, s.y + by + s.h);
-        g.addColorStop(0, "#ffcf5a"); g.addColorStop(1, "#e59a1f");
-        rrectGrad(s.x, s.y + by, s.w, s.h, 5, g);
+        ctx.save(); ctx.translate(s.x, s.y + by);
+        ctx.fillStyle = g.block; pathRR(0, 0, s.w, s.h, 5); ctx.fill();
         ctx.fillStyle = "rgba(255,255,255,0.55)";
-        [[6, 6], [s.w - 10, 6], [6, s.h - 10], [s.w - 10, s.h - 10]].forEach((r) => ctx.fillRect(s.x + r[0], s.y + by + r[1], 4, 4));
-        ctx.fillStyle = "#7a4a0a"; ctx.font = "bold 20px sans-serif";
-        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillRect(6, 6, 4, 4); ctx.fillRect(s.w - 10, 6, 4, 4); ctx.fillRect(6, s.h - 10, 4, 4); ctx.fillRect(s.w - 10, s.h - 10, 4, 4);
+        ctx.fillStyle = "#7a4a0a"; ctx.font = "bold 20px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
         const glow = 0.6 + 0.4 * Math.abs(Math.sin(performance.now() / 300));
-        ctx.globalAlpha = glow; ctx.fillText("?", s.x + s.w / 2, s.y + by + s.h / 2 + 1); ctx.globalAlpha = 1;
+        ctx.globalAlpha = glow; ctx.fillText("?", s.w / 2, s.h / 2 + 1); ctx.globalAlpha = 1;
+        ctx.restore();
       } else if (s.type === "used") {
-        const g = ctx.createLinearGradient(0, s.y + by, 0, s.y + by + s.h);
-        g.addColorStop(0, "#9a6a2a"); g.addColorStop(1, "#6f4a17");
-        rrectGrad(s.x, s.y + by, s.w, s.h, 5, g);
+        ctx.save(); ctx.translate(s.x, s.y + by);
+        ctx.fillStyle = g.used; pathRR(0, 0, s.w, s.h, 5); ctx.fill();
+        ctx.restore();
       } else if (s.type === "pipe") {
-        const g = ctx.createLinearGradient(s.x, 0, s.x + s.w, 0);
-        g.addColorStop(0, "#219a2e"); g.addColorStop(0.4, "#7dffa0"); g.addColorStop(0.6, "#4bd75e"); g.addColorStop(1, "#177a24");
-        ctx.fillStyle = g; ctx.fillRect(s.x, s.y, s.w, s.h);
-        ctx.strokeStyle = "rgba(0,50,0,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(s.x + 0.5, s.y + 0.5, s.w - 1, s.h - 1);
+        ctx.save(); ctx.translate(s.x, s.y);
+        ctx.fillStyle = g.pipe; ctx.fillRect(0, 0, s.w, s.h);
+        ctx.strokeStyle = "rgba(0,50,0,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, s.w - 1, s.h - 1);
+        ctx.restore();
         const hasAbove = solids.some((o) => o.type === "pipe" && o.x === s.x && o.y === s.y - TILE);
         if (!hasAbove) { // حافة الأنبوب العلوية
           ctx.fillStyle = "#2fbf40"; ctx.fillRect(s.x - 3, s.y - 2, s.w + 6, 10);
           ctx.fillStyle = "#9dffbc"; ctx.fillRect(s.x - 3, s.y - 2, s.w + 6, 3);
-          ctx.strokeStyle = "rgba(0,50,0,0.35)"; ctx.strokeRect(s.x - 2.5, s.y - 1.5, s.w + 5, 9);
+          ctx.strokeStyle = "rgba(0,50,0,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(s.x - 2.5, s.y - 1.5, s.w + 5, 9);
         }
       }
     }
@@ -836,9 +844,7 @@
     ctx.save();
     ctx.translate(cx, cy);
     ctx.scale(0.35 + 0.65 * spin, 1); // دوران
-    const g = ctx.createRadialGradient(-3, -3, 1, 0, 0, 10);
-    g.addColorStop(0, C.coinLight); g.addColorStop(0.6, C.coin); g.addColorStop(1, C.coinDark);
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 9.5, 0, 7); ctx.fill();
+    ctx.fillStyle = grads().coin; ctx.beginPath(); ctx.arc(0, 0, 9.5, 0, 7); ctx.fill();
     ctx.strokeStyle = "rgba(120,80,0,0.5)"; ctx.lineWidth = 1; ctx.stroke();
     ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.fillRect(-1.5, -5, 3, 10);
     ctx.restore();
@@ -1193,7 +1199,7 @@
 
   // ============ ضبط الحجم بدقة عالية (High-DPI) ============
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2); // نحدّ الدقة عند ×2 للأداء
     const scale = Math.min(innerWidth / VW, innerHeight / VH);
     const cssW = Math.floor(VW * scale), cssH = Math.floor(VH * scale);
     canvas.style.width = cssW + "px"; canvas.style.height = cssH + "px";
